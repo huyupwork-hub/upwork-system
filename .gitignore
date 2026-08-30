@@ -1,0 +1,30 @@
+# Secrets — never commit. See .env.example for the documented shape.
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+*.iml
+.flutter-plugins
+.flutter-plugins-dependencies
+apps/mobile/ios/Pods/
+apps/mobile/ios/.symlinks/
+apps/mobile/android/.gradle/
+apps/mobile/android/local.properties
+
+# Supabase local stack
+supabase/.branches/
+supabase/.temp/

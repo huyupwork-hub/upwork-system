@@ -1,0 +1,6 @@
+# Minimal by design. The CLI supplies defaults for every omitted section; keeping this
+# file small reduces the chance of schema drift breaking CI across CLI versions.
+project_id = "fieldproof"
+
+[db]
+major_version = 15
