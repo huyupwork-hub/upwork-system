@@ -215,7 +215,8 @@ class _Thumb extends StatelessWidget {
               return Image.network(
                 snap.data!,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stack) => const _ThumbPlaceholder(),
+                errorBuilder: (context, error, stack) =>
+                    const _ThumbPlaceholder(),
               );
             },
           ),
