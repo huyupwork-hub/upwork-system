@@ -130,8 +130,24 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      # Still fails the build on unformatted code. On failure it also emits the
+      # exact patch as an artifact, because the development machine cannot run the
+      # matching formatter (Dart 3.13 needs macOS 14; the machine is on 12 — D1).
       - name: Formatting
-        run: dart format --set-exit-if-changed .
+        run: |
+          if ! dart format --set-exit-if-changed .; then
+            git --no-pager diff > "$GITHUB_WORKSPACE/format.patch"
+            echo '::error::Code is not formatted. Download the format-patch artifact and apply it.'
+            exit 1
+          fi
+
+      - name: Upload format patch
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: format-patch
+          path: format.patch
+          if-no-files-found: ignore
       - name: Analyze
         run: flutter analyze --fatal-infos
       - name: Test
