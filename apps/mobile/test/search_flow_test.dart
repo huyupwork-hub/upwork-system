@@ -30,15 +30,16 @@ void main() {
     String? address,
     String? client,
     InspectionStatus status = InspectionStatus.draft,
-  }) => Inspection(
-    id: id,
-    inspectorId: 'user-1',
-    siteName: site,
-    siteAddress: address,
-    clientName: client,
-    inspectionDate: date,
-    status: status,
-  );
+  }) =>
+      Inspection(
+        id: id,
+        inspectorId: 'user-1',
+        siteName: site,
+        siteAddress: address,
+        clientName: client,
+        inspectionDate: date,
+        status: status,
+      );
 
   setUp(() {
     auth = FakeAuthRepository();
@@ -222,7 +223,8 @@ void main() {
       expect(find.textContaining('zzzznothing'), findsWidgets);
     });
 
-    testWidgets('a stale response cannot overwrite a newer one', (tester) async {
+    testWidgets('a stale response cannot overwrite a newer one',
+        (tester) async {
       // "nor" is slow, "northgate" is fast: the earlier request completes last.
       inspections.delays['nor'] = const Duration(milliseconds: 400);
       inspections.delays['northgate'] = const Duration(milliseconds: 10);
