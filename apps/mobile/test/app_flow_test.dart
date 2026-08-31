@@ -85,6 +85,16 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  // Scoped to the sheet on purpose. The inspections screen stays mounted
+  // underneath, and its search box is also a CupertinoTextField, so an unscoped
+  // finder puts the search field at .at(0) and shifts every form field by one.
+  Finder sheetFields() {
+    return find.descendant(
+      of: find.byType(NewInspectionSheet),
+      matching: find.byType(CupertinoTextField),
+    );
+  }
+
   group('auth gate', () {
     testWidgets('starts signed out', (tester) async {
       await pumpApp(tester);
@@ -145,7 +155,7 @@ void main() {
       // Name, Address, Client — and nothing else. The Figma mockup also shows a
       // Template picker and an editable Inspector; both are rejected in favour
       // of the accepted schema, so neither may appear as an input.
-      expect(find.byType(CupertinoTextField), findsNWidgets(3));
+      expect(sheetFields(), findsNWidgets(3));
       expect(find.text('Name'), findsOneWidget);
       expect(find.text('Address'), findsOneWidget);
       expect(find.text('Client'), findsOneWidget);
@@ -188,7 +198,7 @@ void main() {
       await signIn(tester);
       await openSheet(tester);
 
-      final fields = find.byType(CupertinoTextField);
+      final fields = sheetFields();
       await tester.enterText(fields.at(0), 'Harbour View Apartments');
       await tester.enterText(fields.at(1), '12 Dock Road');
       await tester.enterText(fields.at(2), 'Meridian Property Group');
@@ -207,7 +217,7 @@ void main() {
       await openSheet(tester);
 
       await tester.enterText(
-        find.byType(CupertinoTextField).at(0),
+        sheetFields().at(0),
         'Northgate Retail Park',
       );
       await tapCreate(tester);
@@ -230,7 +240,7 @@ void main() {
       await openSheet(tester);
 
       await tester.enterText(
-        find.byType(CupertinoTextField).at(0),
+        sheetFields().at(0),
         'Blocked Site',
       );
       await tapCreate(tester);
