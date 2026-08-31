@@ -137,4 +137,13 @@ class PhotoWorkflow implements PhotosRepository {
     Duration ttl = const Duration(minutes: 10),
   }) =>
       _objects.signedUrl(photo.storagePath, ttl);
+
+  /// Bytes for embedding in a report.
+  ///
+  /// The same private path and the same policies as every other read — a report
+  /// is not a new access route, just a different use of one the caller already
+  /// had (D21).
+  @override
+  Future<List<int>> bytes(ItemPhoto photo) =>
+      _objects.download(photo.storagePath);
 }
