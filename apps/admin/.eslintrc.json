@@ -1,0 +1,10 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "rules": {
+    // The console is deliberately server-rendered end to end: search is a GET
+    // form, every page is force-dynamic, and navigation is a full page load.
+    // next/link would add a client runtime for no gain and would stop the
+    // presentational components rendering in isolation under test.
+    "@next/next/no-html-link-for-pages": "off"
+  }
+}

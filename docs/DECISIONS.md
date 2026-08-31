@@ -348,3 +348,34 @@ next token and applies its result only if still newest, so a slow response for "
 land after a fast one for "abc". Rows stay on screen while a newer request is in flight —
 blanking them would make every keystroke flash the list away. No debounce: the token makes
 out-of-order responses harmless, and a timer would add latency and another moving part.
+
+### D23 — The admin console adds no privilege — *Accepted*
+The Next.js review console is a second **client** of the same database, not a second
+authority over it. It signs in with ordinary email/password, holds only the publishable
+key, and every query runs as the reviewer's own `authenticated` session — so the admin
+`SELECT` policies (D3) decide what comes back, exactly as they did before the console
+existed. There is no privileged client anywhere in `apps/admin`.
+**No migration was needed.** The policies written for D3 already satisfy the accepted admin
+contract: `inspections_select_admin_submitted`, `inspection_items_select_admin_submitted`,
+`item_photos_select_admin_submitted`, `profiles_select_admin` and the storage read policy
+grant `SELECT` only and only where the owning inspection is `submitted`; there is no admin
+write policy of any kind, and the ownership write policies carry `and not public.is_admin()`.
+Two *assertions* were missing rather than two policies, and were added: an admin attempting
+to add or remove photo **metadata**, and an ordinary inspector attempting to read another
+inspector's **submitted** row — the case that only becomes interesting once a review console
+exists, since submitting is what makes work reviewable, not public.
+**The role gate is not a substitute for RLS.** `resolveAccess` refuses a non-admin before
+any page renders, and fails closed when the profile cannot be read. Without it an inspector
+reaching `/inspections` would get a working console listing their *own* submitted work —
+not a leak, but not a review console either. Both layers stay: remove the gate and nothing
+leaks; remove RLS and everything does.
+**Read-only is asserted, not intended.** The repository interface has no write method, and a
+test renders the detail view and fails if it contains a `button`, `form`, `input`, `select`
+or `textarea`. A control that the database would refuse is still a lie told to the reviewer.
+**Search is the same search.** The console mirrors the Flutter client's tsquery construction
+against the one stored `search_tsv` and its existing GIN index — no second index, no second
+semantics. `test/search.test.ts` pins the cases the Dart tests pin, because two clients
+querying one column must not disagree about what a word matches.
+**No second PDF engine** (D21). The console presents submitted data in a report-oriented
+view; the Flutter client remains the only thing that generates a document, and nothing is
+persisted.

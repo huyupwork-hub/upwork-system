@@ -76,9 +76,34 @@ select lives_ok(
   'admin delete does not error'
 );
 select lives_ok(
-  $$update public.inspection_items set severity = 'low'
-    where inspection_id = 'a0000000-0000-4000-8000-000000000002'$$,
+  $update public.inspection_items set severity = 'low'
+    where inspection_id = 'a0000000-0000-4000-8000-000000000002'$,
   'admin item update does not error'
+);
+
+-- Photo metadata. An admin reads these rows to review a submitted inspection, so
+-- "read-only" has to mean they cannot add a photo to the record they are
+-- reviewing, or remove one that is inconvenient. INSERT raises; DELETE is denied
+-- by USING and so is silent, and is asserted against the data below.
+select throws_ok(
+  $insert into public.item_photos
+      (item_id, inspection_id, storage_path, content_type, byte_size)
+    values ('a1000000-0000-4000-8000-000000000002',
+            'a0000000-0000-4000-8000-000000000002',
+            '33333333-3333-4333-8333-333333333333/a0000000-0000-4000-8000-000000000002/x/y.jpg',
+            'image/jpeg', 1024)$,
+  '42501', null,
+  'admin cannot add photo metadata to a submitted inspection'
+);
+select lives_ok(
+  $delete from public.item_photos
+    where id = 'a2000000-0000-4000-8000-000000000002'$,
+  'admin photo delete does not error'
+);
+select lives_ok(
+  $update public.item_photos set caption = 'ADMIN EDIT'
+    where id = 'a2000000-0000-4000-8000-000000000002'$,
+  'admin photo update does not error'
 );
 
 reset role;
@@ -90,6 +115,12 @@ select is((select count(*)::int from public.inspections where id = 'a0000000-000
 select is((select count(*)::int from public.inspection_items
            where inspection_id = 'a0000000-0000-4000-8000-000000000002' and severity = 'low'),
   0, 'admin item UPDATE changed nothing');
+select is((select count(*)::int from public.item_photos
+           where id = 'a2000000-0000-4000-8000-000000000002'),
+  1, 'admin photo DELETE removed nothing');
+select is((select caption from public.item_photos
+           where id = 'a2000000-0000-4000-8000-000000000002'),
+  'Junction box, cover removed', 'admin photo UPDATE changed nothing');
 
 select * from finish();
 rollback;

@@ -71,12 +71,13 @@ Directories are created when they have a purpose, not to match a template.
 docs/                    specification, acceptance, data model, decisions
 supabase/migrations/     schema + RLS (materialised on Gate 0 acceptance)
 apps/mobile/             Flutter app (Dart source only — see D12)
+apps/admin/              Next.js review console (read-only, submitted work only)
 supabase/tests/          pgTAP RLS suite
 scripts/                 local database verification runner
 .github/workflows/       CI quality gates
 ```
 
-`apps/admin/` and `packages/shared/` are added by the slices that need them.
+`packages/shared/` is added by the slice that needs it.
 
 ## Verification path
 
@@ -165,8 +166,28 @@ flutter run \
 ```
 
 The app **fails closed** without those two defines rather than starting in a degraded
-state. Only the anon key is ever passed; the service-role key would bypass RLS and has no
+state. Only the anon key is ever passed; the privileged key would bypass RLS and has no
 place in a client.
+
+### Running the admin console
+
+```bash
+cd apps/admin
+npm ci
+cp .env.example .env.local     # then fill in the two public values
+npm run dev
+```
+
+| Variable | Value |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://<project-ref>.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | the anon / publishable key — **never** a privileged one |
+
+Both are published into the browser bundle by design and neither confers privilege beyond
+what RLS allows. The console refuses to start if the key is not one of the two publishable
+shapes (`src/lib/env.ts`), and CI greps the built bundle to prove no privileged key
+reached it. The console signs in as an ordinary user and holds no elevated credential: the
+admin policies (D3, D23) are what make it a review console.
 
 Slice scope: sign in, sign out, create an inspection, list your own. Photos, PDF, offline
 sync and the admin dashboard are later slices and are deliberately absent.

@@ -94,6 +94,35 @@ select is((select count(*)::int from public.inspections), 1,
 select is((select count(*)::int from public.item_photos), 1,
   'inspector B sees exactly their own single photo');
 
+-- Named directly rather than inferred from the count above. Inspector A's
+-- SUBMITTED inspection is the row an admin is allowed to read; an ordinary
+-- inspector must not inherit that visibility just because the admin console
+-- exists. Submitting is what makes work reviewable, not public.
+select is(
+  (select count(*)::int from public.inspections
+   where id = 'a0000000-0000-4000-8000-000000000002'),
+  0,
+  'inspector B cannot read inspector A''s submitted inspection'
+);
+select is(
+  (select count(*)::int from public.inspection_items
+   where inspection_id = 'a0000000-0000-4000-8000-000000000002'),
+  0,
+  'nor its items'
+);
+select is(
+  (select count(*)::int from public.item_photos
+   where inspection_id = 'a0000000-0000-4000-8000-000000000002'),
+  0,
+  'nor its photo metadata'
+);
+select is(
+  (select count(*)::int from public.profiles
+   where id = '11111111-1111-4111-8111-111111111111'),
+  0,
+  'nor the submitting inspector''s profile'
+);
+
 -- H1/H3: search is scoped by the same policies
 select is(
   (select count(*)::int from public.inspections
