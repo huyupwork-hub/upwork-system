@@ -210,18 +210,21 @@ void main() {
       expect(find.byKey(const Key('report-progress')), findsNothing);
     });
 
-    testWidgets('a missing profile fails the report without sharing anything',
+    testWidgets('a failure while loading the snapshot shares nothing',
         (tester) async {
+      // Arrive normally, then break the profile read. Setting it up front would
+      // stop the inspections list rendering at all, so the report would never
+      // be requested — the failure has to happen during generation to test what
+      // this is about: a half-built snapshot must not reach the share sheet.
+      await open(tester, submitted);
       profiles.throwMissing = true;
 
-      await open(tester, submitted);
-      // The detail screen surfaces its own load error; the report action is
-      // still present, and pressing it must not share a half-built document.
       await tester.tap(find.byKey(const Key('generate-report-button')));
       await tester.pumpAndSettle();
 
-      expect(reportSharer.shared, isEmpty);
       expect(find.byKey(const Key('report-error')), findsOneWidget);
+      expect(reportRenderer.rendered, isEmpty, reason: 'nothing was rendered');
+      expect(reportSharer.shared, isEmpty, reason: 'nothing was shared');
     });
   });
 }
