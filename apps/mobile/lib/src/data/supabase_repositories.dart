@@ -85,18 +85,42 @@ class SupabaseInspectionsRepository implements InspectionsRepository {
   }
 
   @override
-  Future<List<Inspection>> listMine() async {
+  Future<List<Inspection>> listMine() => _query(null);
+
+  @override
+  Future<List<Inspection>> searchMine(String query) {
+    final tsQuery = InspectionSearch.toTsQuery(query);
+    // Nothing searchable in what was typed — punctuation, or whitespace. Show
+    // the history rather than an empty result the user cannot explain.
+    if (tsQuery == null) return listMine();
+    return _query(tsQuery);
+  }
+
+  /// One query shape for both, so history and search can never drift apart in
+  /// ordering or in which columns they return.
+  Future<List<Inspection>> _query(String? tsQuery) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) throw const NotSignedInException();
 
-    // RLS already restricts this to the caller's rows. The explicit eq() is
-    // defence in depth and lets the planner use the
-    // (inspector_id, created_at desc) index rather than filtering after the fact.
-    final rows = await _client
+    // RLS already restricts this to the caller's rows; the explicit eq() is
+    // defence in depth and lets the planner use the inspector_id index rather
+    // than filtering after the fact.
+    var builder = _client
         .from('inspections')
         .select(_columns)
-        .eq('inspector_id', userId)
-        .order('created_at', ascending: false);
+        .eq('inspector_id', userId);
+
+    if (tsQuery != null) {
+      // Matched against the stored generated column and its GIN index, in the
+      // database. The 'simple' config must match the one the column was built
+      // with, or the query silently matches nothing.
+      builder = builder.textSearch('search_tsv', tsQuery, config: 'simple');
+    }
+
+    final rows = await builder
+        .order('inspection_date', ascending: false)
+        .order('created_at', ascending: false)
+        .order('id', ascending: false);
 
     return rows.map(Inspection.fromRow).toList(growable: false);
   }

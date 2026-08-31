@@ -321,3 +321,30 @@ out — so `report_renderer_test.dart` asserts on real PDF output; the sharer ke
 `printing`'s platform channel out of every widget test.
 **Deliberately absent:** charts, AI summary, signatures, template engine, server-side
 generation, email, PDF history/versioning, revision selection.
+
+### D22 — Search is server-side over the existing tsvector; ordering is a total order — *Accepted*
+`searchMine(query)` matches in Postgres against the stored `search_tsv` generated column
+and its GIN index, both of which already existed (DATA_MODEL §7). **No migration was
+needed and no index was added.**
+**Not client-side filtering:** fetching every row and filtering in Dart would neither scale
+nor respect what the policies are for. Because search is an ordinary `SELECT`, RLS applies
+to it exactly as to the history list — a query cannot become a way to discover rows the
+caller could not already read. pgTAP `090` asserts that in both directions, and the hosted
+smoke proves it against the real client with per-run unique tokens.
+**Prefix, not infix:** each term is sent as `term:*`, so "north" finds "Northgate". Infix
+matching ("gate" → "Northgate") would need `pg_trgm` and a second index; it is not what
+this search is for. The `'simple'` config lowercases what it indexes, so case-insensitivity
+costs nothing.
+**Input is reduced to letters and digits.** `&`, `|`, `!`, `:`, `(`, `)` and quotes are
+tsquery syntax; passing them through would either error or let a caller compose an
+expression of their own. A query with nothing searchable in it returns null and the caller
+shows the full history rather than an empty result the user cannot explain.
+**Ordering is `inspection_date DESC, created_at DESC, id DESC`** for both history and
+search — one `_query` method builds both, so they cannot drift. The final key is what makes
+the order *total*: two inspections on the same date written in one transaction would
+otherwise come back in either order between calls, which is exactly the H1 gap this closes.
+**Staleness is handled with a generation counter, not a framework.** Each load takes the
+next token and applies its result only if still newest, so a slow response for "a" cannot
+land after a fast one for "abc". Rows stay on screen while a newer request is in flight —
+blanking them would make every keystroke flash the list away. No debounce: the token makes
+out-of-order responses harmless, and a timer would add latency and another moving part.

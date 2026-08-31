@@ -102,8 +102,62 @@ class FakeInspectionsRepository implements InspectionsRepository {
     return created;
   }
 
+  /// Per-query artificial latency, so a test can make an earlier request
+  /// finish *after* a later one and prove the stale result is discarded.
+  final Map<String, Duration> delays = {};
+
   @override
-  Future<List<Inspection>> listMine() async => List.unmodifiable(rows);
+  Future<List<Inspection>> listMine() async {
+    await _wait('');
+    return List.unmodifiable(_ordered(rows));
+  }
+
+  @override
+  Future<List<Inspection>> searchMine(String query) async {
+    await _wait(query);
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) return List.unmodifiable(_ordered(rows));
+
+    // A rough stand-in for the tsvector: every term must appear in one of the
+    // three searched fields. It deliberately does NOT re-implement ownership —
+    // that is RLS's job, proven in pgTAP `090` and the hosted smoke.
+    final terms = needle.split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
+    final matched = rows.where((r) {
+      final haystack = [
+        r.siteName,
+        r.siteAddress ?? '',
+        r.clientName ?? '',
+      ].join(' ').toLowerCase();
+      return terms.every(haystack.contains);
+    }).toList();
+    return List.unmodifiable(_ordered(matched));
+  }
+
+  Future<void> _wait(String query) async {
+    final delay = delays[query.trim()];
+    if (delay != null) await Future<void>.delayed(delay);
+  }
+
+  /// inspection_date DESC, then created_at DESC, then id DESC — the same total
+  /// order the repository asks Postgres for.
+  List<Inspection> _ordered(List<Inspection> input) {
+    final out = [...input];
+    out.sort((a, b) {
+      final byDate = b.inspectionDate.compareTo(a.inspectionDate);
+      if (byDate != 0) return byDate;
+      final ac = a.createdAt, bc = b.createdAt;
+      if (ac != null && bc != null) {
+        final byCreated = bc.compareTo(ac);
+        if (byCreated != 0) return byCreated;
+      } else if (ac == null && bc != null) {
+        return 1;
+      } else if (ac != null && bc == null) {
+        return -1;
+      }
+      return b.id.compareTo(a.id);
+    });
+    return out;
+  }
 }
 
 /// In-memory punch items.

@@ -9,12 +9,13 @@ import 'inspection_detail_screen.dart';
 import 'new_inspection_screen.dart';
 import 'theme.dart';
 
-/// History for the signed-in inspector, with the Figma large-title treatment.
+/// History and search for the signed-in inspector.
 ///
-/// RLS guarantees these can only ever be the caller's own rows; the screen does
-/// no filtering of its own beyond the query. Search and the status segmented
-/// control appear in the mockup but belong to the later search slice (SPEC W8),
-/// so they are deliberately absent here.
+/// RLS guarantees these can only ever be the caller's own rows; the screen sends
+/// no inspector id and does no filtering of its own. Search runs in the database
+/// against the stored `search_tsv` and its GIN index — not by fetching
+/// everything and filtering here, which would neither scale nor respect what the
+/// policies are for.
 class InspectionsScreen extends StatefulWidget {
   const InspectionsScreen({
     super.key,
@@ -40,9 +41,20 @@ class InspectionsScreen extends StatefulWidget {
 }
 
 class _InspectionsScreenState extends State<InspectionsScreen> {
+  final _search = TextEditingController();
+
   Profile? _profile;
   List<Inspection>? _rows;
   String? _error;
+
+  /// The query the displayed rows came from, so the empty state can tell "you
+  /// have no inspections" from "nothing matched that".
+  String _shownQuery = '';
+
+  /// Monotonic request token. Every load takes the next value and applies its
+  /// result only if it is still the newest — this is what stops a slow response
+  /// for "a" landing after a fast one for "abc" and overwriting it.
+  int _generation = 0;
 
   @override
   void initState() {
@@ -50,20 +62,35 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
     unawaited(_load());
   }
 
-  Future<void> _load() async {
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({String query = ''}) async {
+    final generation = ++_generation;
     setState(() => _error = null);
+
     try {
-      // The profile is the bootstrap check: it must exist for the schema to be
-      // sound. A failure here is surfaced, never swallowed.
-      final profile = await widget.profiles.loadCurrent();
-      final rows = await widget.inspections.listMine();
-      if (!mounted) return;
+      final profile = _profile ?? await widget.profiles.loadCurrent();
+      final trimmed = query.trim();
+      final rows = trimmed.isEmpty
+          ? await widget.inspections.listMine()
+          : await widget.inspections.searchMine(trimmed);
+
+      // Superseded by a newer keystroke: drop this result on the floor. The
+      // existing rows stay on screen throughout, so the list never flashes away
+      // mid-typing.
+      if (!mounted || generation != _generation) return;
       setState(() {
         _profile = profile;
         _rows = rows;
+        _shownQuery = trimmed;
       });
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (!mounted || generation != _generation) return;
+      setState(() => _error = e.toString());
     }
   }
 
@@ -76,7 +103,12 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
       inspections: widget.inspections,
       inspectorName: profile.fullName,
     );
-    if (created != null) await _load();
+    // A new inspection would probably not match the current query, so clearing
+    // it is the only way the user sees what they just made.
+    if (created != null) {
+      _search.clear();
+      await _load();
+    }
   }
 
   Future<void> _openDetail(Inspection inspection) async {
@@ -119,6 +151,29 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
               child: const Icon(CupertinoIcons.add, color: AppColors.blue),
             ),
           ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppMetrics.gutter,
+                8,
+                AppMetrics.gutter,
+                4,
+              ),
+              child: CupertinoSearchTextField(
+                key: const Key('inspections-search'),
+                controller: _search,
+                placeholder: 'Site, address or client',
+                // No debounce: the generation token already makes out-of-order
+                // responses harmless, and at this dataset size a timer would add
+                // latency and one more moving part for no gain.
+                onChanged: (value) => unawaited(_load(query: value)),
+                onSuffixTap: () {
+                  _search.clear();
+                  unawaited(_load());
+                },
+              ),
+            ),
+          ),
           SliverToBoxAdapter(child: _body()),
         ],
       ),
@@ -138,7 +193,10 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
               style: const TextStyle(fontSize: 15, color: AppColors.red),
             ),
             const SizedBox(height: 16),
-            CupertinoButton(onPressed: _load, child: const Text('Try Again')),
+            CupertinoButton(
+              onPressed: () => _load(query: _search.text),
+              child: const Text('Try Again'),
+            ),
           ],
         ),
       );
@@ -153,13 +211,19 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
     }
 
     if (rows.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.fromLTRB(32, 64, 32, 32),
+      // Two different situations that must not read the same. "No inspections
+      // yet" points at the + button; "nothing matched" points at the query.
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(32, 48, 32, 32),
         child: Text(
-          'No inspections yet.\nTap + to create one.',
-          key: Key('inspections-empty'),
+          _shownQuery.isEmpty
+              ? 'No inspections yet.\nTap + to create one.'
+              : 'No inspections match "$_shownQuery".',
+          key: Key(
+            _shownQuery.isEmpty ? 'inspections-empty' : 'inspections-no-matches',
+          ),
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 17, color: AppColors.label2),
+          style: const TextStyle(fontSize: 17, color: AppColors.label2),
         ),
       );
     }
@@ -167,7 +231,9 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SectionHeader(label: 'All Inspections'),
+        SectionHeader(
+          label: _shownQuery.isEmpty ? 'All Inspections' : 'Results',
+        ),
         InsetCard(
           children: [
             for (final row in rows)
@@ -198,6 +264,7 @@ class _InspectionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final subtitle = [
       NewInspection.dateOnly(inspection.inspectionDate),
+      if (inspection.siteAddress != null) inspection.siteAddress!,
       if (inspection.clientName != null) inspection.clientName!,
     ].join('  ·  ');
 
@@ -215,8 +282,7 @@ class _InspectionRow extends StatelessWidget {
                 children: [
                   Text(
                     inspection.siteName,
-                    style:
-                        const TextStyle(fontSize: 17, color: AppColors.label),
+                    style: const TextStyle(fontSize: 17, color: AppColors.label),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -227,6 +293,8 @@ class _InspectionRow extends StatelessWidget {
                       fontSize: 13,
                       color: AppColors.label2,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),

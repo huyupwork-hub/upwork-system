@@ -33,7 +33,20 @@ abstract interface class InspectionsRepository {
   Future<Inspection> create(NewInspection draft);
 
   /// The signed-in inspector's own inspections, newest first.
+  ///
+  /// Ordered inspection_date DESC, then created_at DESC, then id DESC. The last
+  /// key is what makes the order total: without it two inspections recorded on
+  /// the same day and written in the same transaction could come back in either
+  /// order between calls.
   Future<List<Inspection>> listMine();
+
+  /// The same list, narrowed by a free-text query over site name, address and
+  /// client.
+  ///
+  /// Server-side, through the stored tsvector and its GIN index. Ownership stays
+  /// with RLS — no inspector id is sent from the UI — so a query can only ever
+  /// range over rows the caller could already read.
+  Future<List<Inspection>> searchMine(String query);
 }
 
 class ProfileMissingException implements Exception {

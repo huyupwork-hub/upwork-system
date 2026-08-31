@@ -96,6 +96,14 @@ void main() {
   ItemPhoto? photo;
 
   InspectionItem? item;
+  Inspection? histOlder;
+  Inspection? histNewer;
+  Inspection? bUnique;
+
+  // Nonsense tokens, unique per run, so a search assertion cannot accidentally
+  // match a leftover row from an earlier run.
+  final searchTerm = 'zqx${DateTime.now().microsecondsSinceEpoch}';
+  final bSearchTerm = 'qzb${DateTime.now().microsecondsSinceEpoch}';
 
   late String userAId;
   late String userBId;
@@ -489,6 +497,119 @@ void main() {
       throwsA(isA<NotPermittedException>()),
     );
     item = null;
+  });
+
+  // ------------------------------------------------------------ history + search
+  //
+  // Closes H1/H2/H3 against the real client: ordering, matching, and the fact
+  // that a query cannot reach another inspector's rows. Everything created here
+  // stays a draft so it can be deleted again (D17 makes submitted rows
+  // permanent).
+
+  test('24. user A creates two more inspections with known dates', () async {
+    histOlder = await inspectionsA.create(
+      NewInspection(
+        siteName: 'SMOKE $searchTerm older do-not-keep',
+        siteAddress: '1 Older Street',
+        clientName: 'Older Client',
+        inspectionDate: DateTime(2020, 1, 1),
+      ),
+    );
+    histNewer = await inspectionsA.create(
+      NewInspection(
+        siteName: 'SMOKE $searchTerm newer do-not-keep',
+        siteAddress: '2 Newer Street',
+        clientName: 'Newer Client',
+        inspectionDate: DateTime(2020, 6, 1),
+      ),
+    );
+    expect(histOlder!.id, isNot(histNewer!.id));
+  });
+
+  test('25. history is ordered by inspection_date, newest first', () async {
+    final rows = await inspectionsA.listMine();
+    final ids = rows.map((r) => r.id).toList();
+
+    final newerAt = ids.indexOf(histNewer!.id);
+    final olderAt = ids.indexOf(histOlder!.id);
+    expect(newerAt, isNonNegative);
+    expect(olderAt, isNonNegative);
+    expect(
+      newerAt,
+      lessThan(olderAt),
+      reason: '2020-06-01 must come before 2020-01-01',
+    );
+
+    // And the whole list is non-increasing by inspection date, so the ordering
+    // is a property of the query rather than of these two rows.
+    for (var i = 1; i < rows.length; i++) {
+      expect(
+        rows[i - 1].inspectionDate.isBefore(rows[i].inspectionDate),
+        isFalse,
+        reason: 'history must not ascend at position $i',
+      );
+    }
+  });
+
+  test('26. search finds user A rows by site, address and client', () async {
+    final bySite = await inspectionsA.searchMine(searchTerm);
+    expect(bySite.map((r) => r.id).toSet(), {histOlder!.id, histNewer!.id});
+    // Results keep the history ordering.
+    expect(bySite.first.id, histNewer!.id);
+
+    expect(
+      (await inspectionsA.searchMine('Newer Street')).map((r) => r.id),
+      contains(histNewer!.id),
+    );
+    expect(
+      (await inspectionsA.searchMine('Older Client')).map((r) => r.id),
+      contains(histOlder!.id),
+    );
+  });
+
+  test('27. search is case-insensitive and matches on a prefix', () async {
+    expect(
+      (await inspectionsA.searchMine(searchTerm.toUpperCase())).map((r) => r.id),
+      contains(histNewer!.id),
+    );
+    // Prefix: drop the last three characters of the unique token.
+    final prefix = searchTerm.substring(0, searchTerm.length - 3);
+    expect(
+      (await inspectionsA.searchMine(prefix)).map((r) => r.id),
+      contains(histNewer!.id),
+    );
+  });
+
+  test('28. neither inspector can discover the other through search', () async {
+    bUnique = await inspectionsB.create(
+      NewInspection(
+        siteName: 'SMOKE $bSearchTerm bravo do-not-keep',
+        inspectionDate: DateTime(2020, 3, 1),
+      ),
+    );
+
+    // The term exists, and B can find it.
+    expect(
+      (await inspectionsB.searchMine(bSearchTerm)).map((r) => r.id),
+      contains(bUnique!.id),
+    );
+
+    // A cannot — this is the case that would fail if search bypassed RLS.
+    expect(await inspectionsA.searchMine(bSearchTerm), isEmpty);
+    // ...and the reverse.
+    expect(await inspectionsB.searchMine(searchTerm), isEmpty);
+  });
+
+  test('29. the search fixtures are removed', () async {
+    await clientA.from('inspections').delete().eq('id', histOlder!.id);
+    await clientA.from('inspections').delete().eq('id', histNewer!.id);
+    await clientB.from('inspections').delete().eq('id', bUnique!.id);
+
+    expect(await inspectionsA.searchMine(searchTerm), isEmpty);
+    expect(await inspectionsB.searchMine(bSearchTerm), isEmpty);
+    histOlder = null;
+    histNewer = null;
+    bUnique = null;
   });
 }
 

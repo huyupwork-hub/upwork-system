@@ -432,3 +432,36 @@ class PhotoLimits {
   }) =>
       '$inspectorId/$inspectionId/$itemId/$photoId.$extension';
 }
+
+// ---------------------------------------------------------------- search
+
+/// Turns what someone typed into a Postgres `tsquery`.
+///
+/// The schema already carries a stored `search_tsv` over site name, address and
+/// client, with a GIN index (DATA_MODEL §7), so searching is a server-side index
+/// lookup — never "fetch everything and filter here", which would both leak rows
+/// past RLS's intent and fall apart on any real dataset.
+///
+/// `'simple'` lowercases every token, so matching is case-insensitive without
+/// any extra work. Each term gets `:*` for prefix matching, which is what the
+/// tsvector design supports: "north" finds "Northgate". Infix matching
+/// ("gate" → "Northgate") would need a trigram index and a new extension, and is
+/// not what this search is for.
+class InspectionSearch {
+  const InspectionSearch._();
+
+  /// Null when there is nothing to search for — the caller falls back to the
+  /// full history rather than sending an empty query.
+  ///
+  /// Only letters and digits survive. `&`, `|`, `!`, `:`, `(`, `)` and quotes
+  /// are tsquery syntax, and passing them through would either error or let a
+  /// caller compose an expression of their own.
+  static String? toTsQuery(String raw) {
+    final terms = RegExp(r'[\p{L}\p{N}]+', unicode: true)
+        .allMatches(raw.toLowerCase())
+        .map((m) => m.group(0)!)
+        .toList();
+    if (terms.isEmpty) return null;
+    return terms.map((t) => '$t:*').join(' & ');
+  }
+}
