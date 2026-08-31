@@ -63,7 +63,7 @@ void main() {
     expect(
       ItemLimits.titleMax,
       upperBound(
-        RegExp(r'char_length(title)s+betweens+1s+ands+(\d+)'),
+        RegExp(r'char_length\(title\)\s+between\s+1\s+and\s+(\d+)'),
         'item title',
       ),
     );
@@ -73,7 +73,7 @@ void main() {
     expect(
       ItemLimits.descriptionMax,
       upperBound(
-        RegExp(r'char_length(description)s*<=s*(\d+)'),
+        RegExp(r'char_length\(description\)\s*<=\s*(\d+)'),
         'item description',
       ),
     );
@@ -82,16 +82,16 @@ void main() {
   test('item area limit matches inspection_items_area_len', () {
     expect(
       ItemLimits.areaMax,
-      upperBound(RegExp(r'char_length(area)s*<=s*(\d+)'), 'item area'),
+      upperBound(RegExp(r'char_length\(area\)\s*<=\s*(\d+)'), 'item area'),
     );
   });
 
   test('severity and punch-status enums match the schema declarations', () {
     Set<String> declared(String typeName) {
       final m = RegExp(
-        'create type public\.\s+as enum \(([^)]*)\)',
+        'create type public\\.$typeName\\s+as enum \\(([^)]*)\\)',
       ).firstMatch(sql);
-      expect(m, isNotNull, reason: 'no  enum found');
+      expect(m, isNotNull, reason: 'no $typeName enum found');
       return RegExp("'([a-z_]+)'")
           .allMatches(m!.group(1)!)
           .map((x) => x.group(1)!)
@@ -103,7 +103,9 @@ void main() {
       ItemSeverity.values.map((v) => v.wire).toSet(),
     );
     expect(
-        declared('item_status'), ItemStatus.values.map((v) => v.wire).toSet());
+      declared('item_status'),
+      ItemStatus.values.map((v) => v.wire).toSet(),
+    );
   });
 
   test('the enum the client models matches the one the schema declares', () {
