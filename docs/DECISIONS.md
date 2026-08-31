@@ -309,9 +309,13 @@ would claim a permanence it does not have. Generation never submits as a side ef
 asking to see a report must not be the act that makes an inspection permanent. The check
 lives in the loader, and the UI simply has no report action on a draft: an affordance that
 can never succeed is worse than its absence.
-**Missing photos are stated, not skipped.** A photo whose bytes cannot be read renders as
-"Photograph unavailable" in place, and the summary notes it. Dropping it would make the
-document assert there was no photograph, which is a different and worse claim.
+**An unfetchable photo aborts generation.** `ReportPhotoUnavailableException` names the
+object and the report is not produced. A placeholder was built first and rejected: a
+document that renders "unavailable" where evidence should be still looks complete to
+whoever receives it, and an inspection report is exactly the artefact where a silent gap
+matters. Failing is louder and recoverable — retry once the connection is back.
+**Cost accepted:** one transient fetch failure blocks the whole report rather than
+degrading it. That is the intended trade for a document that is either complete or absent.
 **Ports:** `ReportRenderer` and `ReportSharer`. The renderer is pure — snapshot in, bytes
 out — so `report_renderer_test.dart` asserts on real PDF output; the sharer keeps
 `printing`'s platform channel out of every widget test.

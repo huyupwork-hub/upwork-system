@@ -122,7 +122,7 @@ void main() {
             reportItem(
               1,
               photos: [
-                const ReportPhoto.available(
+                const ReportPhoto(
                   ItemPhoto(
                     id: 'p1',
                     itemId: 'item-1',
@@ -147,34 +147,6 @@ void main() {
       expect(withPhoto.length, greaterThan(withoutPhoto.length));
     });
 
-    test('an unavailable photo renders a placeholder rather than failing',
-        () async {
-      final bytes = await renderer.render(
-        snapshot(
-          items: [
-            reportItem(
-              1,
-              photos: [
-                const ReportPhoto.unavailable(
-                  ItemPhoto(
-                    id: 'p1',
-                    itemId: 'item-1',
-                    inspectionId: 'a0000000-0000-4000-8000-000000000002',
-                    storagePath: 'u/i/it/p1.png',
-                    contentType: 'image/png',
-                    byteSize: 68,
-                  ),
-                  'object gone',
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-
-      expect(head(bytes), startsWith('%PDF-'));
-      expect(tail(bytes), contains('%%EOF'));
-    });
   });
 
   group('multipage', () {

@@ -52,11 +52,11 @@ class ReportLoader {
       final loaded = <ReportPhoto>[];
       for (final photo in orderedPhotos) {
         try {
-          loaded.add(ReportPhoto.available(photo, await _photos.bytes(photo)));
+          loaded.add(ReportPhoto(photo, await _photos.bytes(photo)));
         } catch (e) {
-          // Recorded, not dropped. A missing photo the report stays silent about
-          // reads as "there was no photo", which is a different claim.
-          loaded.add(ReportPhoto.unavailable(photo, e.toString()));
+          // Abort. A report that renders a placeholder where evidence should be
+          // looks complete to whoever reads it, and they have no way to tell.
+          throw ReportPhotoUnavailableException(photo.storagePath, e);
         }
       }
       reportItems.add(ReportItem(item: item, photos: loaded));

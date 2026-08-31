@@ -229,25 +229,34 @@ void main() {
       items.rows.add(item('a'));
       await attach('a');
       final snap = await loader.load(submitted);
-      expect(snap.items.single.photos.single.isAvailable, isTrue);
       expect(snap.items.single.photos.single.bytes, [1, 2, 3]);
     });
 
-    test('an unreadable photo is recorded, not silently dropped', () async {
+    test('an unreadable photo aborts generation', () async {
       items.rows.add(item('a'));
       await attach('a');
       objectStore.failDownload = StateError('object gone');
 
-      final snap = await loader.load(submitted);
-      final photo = snap.items.single.photos.single;
+      // No partial snapshot: a report that renders a placeholder where evidence
+      // should be looks complete to its reader, who cannot tell the difference.
+      await expectLater(
+        loader.load(submitted),
+        throwsA(isA<ReportPhotoUnavailableException>()),
+      );
+    });
 
-      // The photo is still present in the report, marked unavailable. Dropping
-      // it would make the document claim there was never a photograph.
-      expect(snap.items.single.photos, hasLength(1));
-      expect(photo.isAvailable, isFalse);
-      expect(photo.unavailableReason, contains('object gone'));
-      expect(snap.hasUnavailablePhotos, isTrue);
-      expect(snap.photoCount, 0);
+    test('the abort names the object it could not fetch', () async {
+      items.rows.add(item('a'));
+      final p = await attach('a');
+      objectStore.failDownload = StateError('object gone');
+
+      try {
+        await loader.load(submitted);
+        fail('expected ReportPhotoUnavailableException');
+      } on ReportPhotoUnavailableException catch (e) {
+        expect(e.storagePath, p.storagePath);
+        expect(e.toString(), contains('could not be generated'));
+      }
     });
 
     test('photo order is created_at then id', () async {

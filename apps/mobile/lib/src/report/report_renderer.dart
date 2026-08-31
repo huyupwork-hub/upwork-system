@@ -182,13 +182,6 @@ class PdfReportRenderer implements ReportRenderer {
                 _stat(severity.label, '${sum.bySeverity[severity] ?? 0}'),
             ],
           ),
-          if (s.hasUnavailablePhotos) ...[
-            pw.SizedBox(height: 8),
-            pw.Text(
-              'Some photographs could not be retrieved and are marked in place.',
-              style: const pw.TextStyle(fontSize: 9, color: _muted),
-            ),
-          ],
         ],
       ),
     );
@@ -285,27 +278,12 @@ class PdfReportRenderer implements ReportRenderer {
   }
 
   pw.Widget _photo(ReportPhoto p) {
-    if (!p.isAvailable) {
-      // Stated, not omitted. The reader learns a photo exists and could not be
-      // read, which is not the same as there being no photo.
-      return pw.Container(
-        width: _photoWidth,
-        height: _photoHeight,
-        alignment: pw.Alignment.center,
-        decoration: pw.BoxDecoration(border: pw.Border.all(color: _rule)),
-        child: pw.Text(
-          'Photograph unavailable',
-          style: const pw.TextStyle(fontSize: 9, color: _muted),
-        ),
-      );
-    }
-
     return pw.Container(
       width: _photoWidth,
       height: _photoHeight,
       decoration: pw.BoxDecoration(border: pw.Border.all(color: _rule)),
       child: pw.Image(
-        pw.MemoryImage(Uint8List.fromList(p.bytes!)),
+        pw.MemoryImage(Uint8List.fromList(p.bytes)),
         fit: pw.BoxFit.cover,
       ),
     );

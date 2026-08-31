@@ -12,24 +12,17 @@ library;
 
 import '../data/models.dart';
 
-/// One photo, plus its bytes — or an explicit record of why they are missing.
+/// One photo and its bytes.
 ///
-/// A photo that cannot be fetched is represented, not skipped. Silently omitting
-/// it would make the report claim there was no photo, which is a different and
-/// worse statement than "this photo could not be read".
+/// There is no "unavailable" variant: a photo the snapshot cannot fetch aborts
+/// generation with [ReportPhotoUnavailableException] rather than producing a
+/// report with a gap in it. A document that silently stands in for missing
+/// evidence is worse than no document, because the reader cannot tell.
 class ReportPhoto {
-  const ReportPhoto.available(this.photo, this.bytes)
-      : unavailableReason = null;
-
-  const ReportPhoto.unavailable(this.photo, String reason)
-      : bytes = null,
-        unavailableReason = reason;
+  const ReportPhoto(this.photo, this.bytes);
 
   final ItemPhoto photo;
-  final List<int>? bytes;
-  final String? unavailableReason;
-
-  bool get isAvailable => bytes != null;
+  final List<int> bytes;
 }
 
 class ReportItem {
@@ -94,13 +87,7 @@ class ReportSnapshot {
   final ReportSummary summary;
   final DateTime generatedAt;
 
-  /// True when at least one photo could not be read. The renderer says so on the
-  /// document rather than leaving a silent gap.
-  bool get hasUnavailablePhotos =>
-      items.any((i) => i.photos.any((p) => !p.isAvailable));
-
-  int get photoCount => items.fold(
-      0, (sum, i) => sum + i.photos.where((p) => p.isAvailable).length);
+  int get photoCount => items.fold(0, (sum, i) => sum + i.photos.length);
 }
 
 /// Raised when a report is requested for an inspection that is not submitted.
@@ -115,4 +102,22 @@ class InspectionNotSubmittedException implements Exception {
   @override
   String toString() =>
       'Only a submitted inspection can produce a report. Submit it first.';
+}
+
+
+/// A photo the report needs could not be fetched.
+///
+/// Generation stops. The alternative — rendering a placeholder — produces a
+/// document that looks complete while quietly omitting evidence, and the person
+/// reading it has no way to know.
+class ReportPhotoUnavailableException implements Exception {
+  const ReportPhotoUnavailableException(this.storagePath, this.cause);
+
+  final String storagePath;
+  final Object cause;
+
+  @override
+  String toString() =>
+      'The report could not be generated: a photograph could not be '
+      'retrieved ($storagePath). Check your connection and try again.';
 }
