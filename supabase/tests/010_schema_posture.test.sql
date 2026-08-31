@@ -41,14 +41,38 @@ select is(
   'no policy exposes a bare true USING qualifier to authenticated'
 );
 
--- D3: admin is read-only. No write policy anywhere references is_admin().
+-- D3: admin is read-only.
+--
+-- The write policies on `inspections` reference is_admin() *negatively*
+-- (`and not public.is_admin()`), and that negation is precisely what makes read-only
+-- true (D3). Asserting that no write policy mentions is_admin() at all therefore
+-- contradicts the schema it is meant to guard: it counted the three inspections write
+-- policies and failed on the first real run of this suite. Assert the two properties
+-- that actually matter instead. Behavioural coverage lives in 030.
 select is(
   (select count(*)::int from pg_policies
    where schemaname = 'public'
      and cmd <> 'SELECT'
-     and coalesce(qual, '') || coalesce(with_check, '') like '%is_admin%'),
+     and policyname like '%admin%'),
   0,
-  'no INSERT/UPDATE/DELETE policy references is_admin()'
+  'no admin-scoped INSERT/UPDATE/DELETE policy exists'
+);
+
+-- The guard that makes "read-only" true is present on every inspections write policy.
+--
+-- Matched by regex, not LIKE: pg_policies renders the expression through pg_get_expr,
+-- which drops the `public.` qualifier only when public is on the active search_path.
+-- A literal '%NOT is_admin()%' would therefore pass or fail depending on the role that
+-- happens to run the suite. Accept either rendering.
+select is(
+  (select count(*)::int from pg_policies
+   where schemaname = 'public'
+     and tablename = 'inspections'
+     and cmd <> 'SELECT'
+     and coalesce(qual, '') || coalesce(with_check, '')
+           ~* 'not\s+\(?\s*(public\.)?is_admin\s*\(\s*\)'),
+  3,
+  'all three inspections write policies carry the NOT is_admin() guard'
 );
 
 -- D4: role is not client-writable, but the rest of the profile is.
