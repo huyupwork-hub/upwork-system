@@ -188,6 +188,39 @@ jobs:
           path: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
+  hosted-smoke:
+    name: Hosted Supabase smoke test
+    needs: detect
+    # Opt-in, and absent rather than red when unconfigured. There is no hosted
+    # project yet; a job that fails on every commit for an environmental reason
+    # teaches people to ignore red (D15). Turn it on by setting the repository
+    # variable HOSTED_SMOKE=true once the secrets below exist.
+    if: needs.detect.outputs.mobile == 'true' && vars.HOSTED_SMOKE == 'true'
+    runs-on: [self-hosted, Linux, X64]
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+
+      # test_hosted/ is outside test/, so the hermetic suite never picks it up.
+      # Credentials go in as environment variables, not --dart-define: defines
+      # appear in the process command line and in the step echo, env does not.
+      - name: Sign in -> create -> read back -> cross-user isolation
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SMOKE_USER_A_EMAIL: ${{ secrets.SMOKE_USER_A_EMAIL }}
+          SMOKE_USER_A_PASSWORD: ${{ secrets.SMOKE_USER_A_PASSWORD }}
+          SMOKE_USER_B_EMAIL: ${{ secrets.SMOKE_USER_B_EMAIL }}
+          SMOKE_USER_B_PASSWORD: ${{ secrets.SMOKE_USER_B_PASSWORD }}
+        run: flutter test test_hosted/ --reporter expanded
+
   # iOS lives in .github/workflows/ios.yml — it needs a macOS runner, which this
   # workflow has no execution path to. Keeping it here left a permanently red job
   # that said nothing about the code, which devalues every other signal in the run.

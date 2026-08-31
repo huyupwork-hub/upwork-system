@@ -1,0 +1,107 @@
+# Hosted Supabase smoke test
+
+Proves the Auth → Create Inspection slice against a **real hosted Supabase project**.
+
+Everything under `apps/mobile/test/` runs against in-memory fakes and touches no
+network. Those tests prove the client contract — the right payload is sent, errors
+surface, a caller cannot name the owner — and they prove **nothing** about RLS. The
+pgTAP suite proves RLS against real Postgres, but through `psql`, not through the
+app's client path. This test closes the remaining gap: the real client, a real
+JWT, real policies, two real users.
+
+**Status: not yet executed.** No hosted project exists (see D2). The CI job is
+opt-in and stays absent until it is configured, so it cannot sit red.
+
+## What it asserts
+
+| # | Assertion |
+|---|---|
+| 1 | User A authenticates with ordinary Supabase Auth; A and B are distinct principals |
+| 2 | User A's `profiles` row exists via the `on_auth_user_created` trigger, role `inspector` |
+| 3 | User A creates a draft through `SupabaseInspectionsRepository` — the app's own path |
+| 4 | User A reads it back through `listMine()` |
+| 5 | Stored `inspector_id` equals A's authenticated id, re-read from the server |
+| 6 | User B cannot read it — by list, and by direct id |
+| 7 | User B cannot update or delete it — asserted against the data afterwards, because RLS denies these *silently* by matching zero rows |
+| 8 | User B cannot insert a row owned by A (raises) |
+
+The row is deleted in `tearDownAll`, which also re-proves the owner delete policy.
+
+## Required configuration
+
+Nothing here is committed. Values live in GitHub Actions secrets, or your shell.
+
+| Secret | Value |
+|---|---|
+| `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
+| `SUPABASE_ANON_KEY` | the **anon / publishable** key — never the service role |
+| `SMOKE_USER_A_EMAIL` | an existing, email-confirmed user |
+| `SMOKE_USER_A_PASSWORD` | |
+| `SMOKE_USER_B_EMAIL` | a **different** existing, confirmed user |
+| `SMOKE_USER_B_PASSWORD` | |
+
+Plus one repository **variable** to enable the job:
+
+| Variable | Value |
+|---|---|
+| `HOSTED_SMOKE` | `true` |
+
+The test refuses to run under a privileged key: it decodes the JWT and requires
+`role: anon`, and rejects `sb_secret_` keys. A privileged key bypasses RLS, so
+assertions 6–8 would pass while proving nothing.
+
+## Setting it up
+
+1. Create a Supabase project.
+2. Apply the schema to it:
+   ```bash
+   supabase link --project-ref <ref>
+   supabase db push
+   ```
+3. Create two users in **Authentication → Users**, both with "Auto Confirm User"
+   enabled. Neither may be an admin — D3 changes what an admin can see, which
+   would invalidate assertions 6 and 7.
+4. Add the six secrets and the variable:
+   ```bash
+   gh secret set SUPABASE_URL --repo <owner>/<repo>
+   gh secret set SUPABASE_ANON_KEY --repo <owner>/<repo>
+   gh secret set SMOKE_USER_A_EMAIL --repo <owner>/<repo>
+   gh secret set SMOKE_USER_A_PASSWORD --repo <owner>/<repo>
+   gh secret set SMOKE_USER_B_EMAIL --repo <owner>/<repo>
+   gh secret set SMOKE_USER_B_PASSWORD --repo <owner>/<repo>
+   gh variable set HOSTED_SMOKE --body true --repo <owner>/<repo>
+   ```
+   `gh secret set` prompts for the value rather than taking it as an argument, so
+   nothing lands in shell history.
+
+## Running it
+
+In CI: automatic once `HOSTED_SMOKE=true`, as the `Hosted Supabase smoke test` job.
+
+Locally:
+
+```bash
+cd apps/mobile
+export SUPABASE_URL='https://<ref>.supabase.co'
+export SUPABASE_ANON_KEY='<anon-key>'
+export SMOKE_USER_A_EMAIL='a@example.com'
+export SMOKE_USER_A_PASSWORD='...'
+export SMOKE_USER_B_EMAIL='b@example.com'
+export SMOKE_USER_B_PASSWORD='...'
+flutter test test_hosted/ --reporter expanded
+```
+
+Use a leading space on the `export` lines, or `set +o history`, to keep passwords
+out of shell history.
+
+## Deliberate constraints
+
+- **No service-role key anywhere.** The app has no privileged path and neither
+  does this test; that is the property under test.
+- **No bypass code, no test-only branches in production classes.** The test uses
+  `SupabaseAuthRepository`, `SupabaseProfileRepository` and
+  `SupabaseInspectionsRepository` exactly as `main.dart` does.
+- **Outside `test/`** so `flutter test` stays hermetic and deterministic. A
+  network-dependent test in the main suite would make K5 a lie.
+- **Credentials via environment, not `--dart-define`.** Defines appear in the
+  process command line and in CI step echoes.
