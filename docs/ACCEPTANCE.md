@@ -127,7 +127,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | L2 | ◐ iOS build verification runs on a macOS runner (no signing required). | **Pending — macOS-only, no execution path.** Passed once on `macos-latest`: run `33351235214`, 1m52s, at `c796b6f`. Not re-verified at HEAD. Moved out of main CI to `.github/workflows/ios.yml`, manual dispatch only (D15) |
 | L3 | ☐ The admin production build succeeds. | CI log |
 | L4 | ☑ Migrations apply cleanly from empty to head. | CI run `d53d066` ✅ |
-| L5 | ☐ CI is green on the default branch. | Actions run URL |
+| L5 | ☑ CI is green on the default branch. | Run [`33360748640`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33360748640) at `1145a88` — all five main-CI jobs green |
 
 ## M. Portfolio evidence
 
@@ -208,3 +208,20 @@ No gate was weakened, skipped, or made non-blocking at any point. In order:
 | APK — no SDK | Android SDK absent | installed it, exported via the runner's `.env` |
 | APK — worker killed, no logs | root hit 100% mid-build | moved `~/.gradle` and `_work` onto the 126 GB volume |
 | APK — `Permission denied` on Gradle lock | `/data` was `0710`, inherited from Docker's hardened data root | `chmod 755 /data` |
+
+### Confirmation run — `33360748640` at `1145a88`
+
+The first fully green run of the main CI workflow, after the iOS split:
+
+| Job | Result |
+|---|---|
+| Detect slices | ✅ 17s |
+| Secret hygiene | ✅ 17s |
+| Database + RLS | ✅ 1m31s |
+| Mobile (Flutter) | ✅ **15m59s** |
+| Admin (Next.js) | skipped — slice does not exist yet |
+
+**run: completed/success.** Artifact `fieldproof-android-1145a88…`, 23,170,144 bytes.
+
+Mobile fell from **27m23s to 15m59s** between the two runs with no code change —
+the warm `~/.gradle` on the 126 GB volume, which is the whole argument for D16.
