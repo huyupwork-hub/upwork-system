@@ -112,8 +112,9 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| K1 | ☐ `flutter analyze` reports zero issues. | CI log |
-| K2 | ☐ Flutter unit + widget tests pass. | CI log |
+| K1 | ☑ `flutter analyze --fatal-infos` reports zero issues. | CI run `606017a` ✅ |
+| K2 | ☑ Flutter unit + widget tests pass — **28 tests**, 0 failures. | CI run `606017a` ✅ |
+| K6 | ☑ `dart format --set-exit-if-changed` is clean. | CI run `606017a` ✅ |
 | K3 | ☑ pgTAP suite passes against a clean migration run. | CI run `d53d066` ✅ |
 | K4 | ☐ Admin lint, typecheck, and tests pass. | CI log |
 | K5 | ☑ Tests are deterministic — no ordering dependence, no wall-clock flake. | CI run `d53d066` ✅ |
@@ -122,8 +123,8 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| L1 | ☐ Android APK builds in CI and is uploaded as an artifact. | Actions artifact |
-| L2 | ☐ iOS build verification runs on a macOS runner (no signing required). | CI log — *feasibility caveat below* |
+| L1 | ◐ Android APK builds in CI and is uploaded as an artifact. | **Blocked**: the self-hosted runner has no Android SDK (`No Android SDK found`) |
+| L2 | ☑ iOS build verification runs on a macOS runner (no signing required). | CI run `33351235214` ✅ 1m52s — at `c796b6f`; not re-run since (macOS runners billing-blocked) |
 | L3 | ☐ The admin production build succeeds. | CI log |
 | L4 | ☑ Migrations apply cleanly from empty to head. | CI run `d53d066` ✅ |
 | L5 | ☐ CI is green on the default branch. | Actions run URL |
@@ -170,3 +171,26 @@ development machine (D1), so none of it could be run locally either.
 2. No live Supabase project is configured, so the authenticated round trip
    (sign in → insert → read back) has never executed against a real database. B1 and the
    A-series cannot be claimed until it has.
+
+---
+
+## CI verification status — run `606017a` (self-hosted T410s)
+
+| Gate | Result |
+|---|---|
+| Secret hygiene | ✅ 22s |
+| Detect slices | ✅ 19s |
+| `dart format --set-exit-if-changed` | ✅ |
+| `flutter analyze --fatal-infos` | ✅ zero issues |
+| `flutter test` | ✅ **28 passed, 0 failed** |
+| Generate Android scaffolding | ✅ |
+| Build release APK | ❌ `No Android SDK found` — runner not provisioned |
+| Database + RLS | ❌ disk guard: 2.3 G free on `/var/lib/docker`, needs 5 G |
+| iOS build verification | ❌ job refused — GitHub billing (only `macos-latest` job) |
+
+All three failures are **environmental, not code**. No gate was weakened or
+skipped to reach this state, and the two that fail still fail loudly.
+
+The database gate last passed on run `d53d066` (GitHub-hosted); the current
+failure is `db-verify.sh`'s own disk fail-fast, which is the guard working as
+designed, not a regression in the suite.
