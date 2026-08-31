@@ -1,5 +1,7 @@
 import 'package:fieldproof/src/data/models.dart';
 import 'package:fieldproof/src/data/photo_workflow.dart';
+import 'package:fieldproof/src/report/report_loader.dart';
+import 'package:fieldproof/src/report/report_service.dart';
 import 'package:fieldproof/src/ui/app.dart';
 import 'package:fieldproof/src/ui/photo_strip.dart';
 import 'package:flutter/cupertino.dart';
@@ -22,6 +24,9 @@ void main() {
   late FakePhotoMetadataStore photoMeta;
   late PhotoWorkflow photos;
   late FakePhotoSource source;
+  late FakeReportRenderer reportRenderer;
+  late FakeReportSharer reportSharer;
+  late ReportService reports;
 
   final draft = Inspection(
     id: 'insp-1',
@@ -60,6 +65,13 @@ void main() {
       currentUserId: () => 'user-1',
     );
     source = FakePhotoSource();
+    reportRenderer = FakeReportRenderer();
+    reportSharer = FakeReportSharer();
+    reports = ReportService(
+      loader: ReportLoader(items: items, photos: photos, profiles: profiles),
+      renderer: reportRenderer,
+      sharer: reportSharer,
+    );
   });
 
   tearDown(() => auth.dispose());
@@ -92,6 +104,7 @@ void main() {
         items: items,
         photos: photos,
         source: source,
+        reports: reports,
       ),
     );
     await tester.pumpAndSettle();

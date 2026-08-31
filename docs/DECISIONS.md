@@ -291,3 +291,29 @@ re-encodes when `imageQuality` is set, so its reported mime type is advisory at 
 **The "compression pipeline" is a size cap and nothing more:** `maxWidth/maxHeight` 2048 and
 `imageQuality` 85, so a 12 MP phone photo does not arrive at 8 MB and get rejected after the
 user has waited for it.
+
+### D21 — The PDF is a projection, not a stored artefact — *Accepted*
+`DB state → ReportSnapshot → PDF bytes`. Nothing about a report is persisted: no
+report table, no generated-PDF upload, no editable report content. Regenerating always
+reproduces the current submitted record.
+**Why no upload to Storage:** a stored PDF becomes a second source of truth the moment the
+underlying record changes, and under D17 the record cannot change — so the stored copy
+would add a staleness risk in exchange for nothing. If a concrete requirement for retained
+copies appears (an audit trail, an emailed artefact), that is its own slice.
+**Snapshot, loaded once:** the loader reads the inspection, profile, items, photo metadata
+and photo bytes in one pass, then the renderer works purely from that. Nothing queries
+Supabase while pages are laid out — otherwise a change or a dropped connection mid-render
+could produce a document whose header and body disagree.
+**Eligibility:** submitted only. A draft is still changing, so a document made from it
+would claim a permanence it does not have. Generation never submits as a side effect —
+asking to see a report must not be the act that makes an inspection permanent. The check
+lives in the loader, and the UI simply has no report action on a draft: an affordance that
+can never succeed is worse than its absence.
+**Missing photos are stated, not skipped.** A photo whose bytes cannot be read renders as
+"Photograph unavailable" in place, and the summary notes it. Dropping it would make the
+document assert there was no photograph, which is a different and worse claim.
+**Ports:** `ReportRenderer` and `ReportSharer`. The renderer is pure — snapshot in, bytes
+out — so `report_renderer_test.dart` asserts on real PDF output; the sharer keeps
+`printing`'s platform channel out of every widget test.
+**Deliberately absent:** charts, AI summary, signatures, template engine, server-side
+generation, email, PDF history/versioning, revision selection.

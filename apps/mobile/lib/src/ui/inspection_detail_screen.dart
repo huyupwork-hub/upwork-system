@@ -4,6 +4,8 @@ import 'package:flutter/cupertino.dart';
 
 import '../data/models.dart';
 import '../data/repositories.dart';
+import '../report/report_service.dart';
+import '../report/report_snapshot.dart';
 import 'item_editor_sheet.dart';
 import 'theme.dart';
 
@@ -23,12 +25,14 @@ class InspectionDetailScreen extends StatefulWidget {
     required this.items,
     required this.photos,
     required this.source,
+    required this.reports,
   });
 
   final Inspection inspection;
   final InspectionItemsRepository items;
   final PhotosRepository photos;
   final PhotoSource source;
+  final ReportService reports;
 
   @override
   State<InspectionDetailScreen> createState() => _InspectionDetailScreenState();
@@ -37,6 +41,9 @@ class InspectionDetailScreen extends StatefulWidget {
 class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
   List<InspectionItem>? _rows;
   String? _error;
+
+  ReportStage? _stage;
+  String? _reportError;
 
   @override
   void initState() {
@@ -72,6 +79,34 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
     if (changed == true) await _load();
   }
 
+  Future<void> _generateReport() async {
+    if (_stage != null) return;
+    setState(() => _reportError = null);
+    try {
+      await widget.reports.generateAndShare(
+        widget.inspection,
+        onStage: (stage) {
+          if (mounted) setState(() => _stage = stage);
+        },
+      );
+    } on InspectionNotSubmittedException catch (e) {
+      // Should be unreachable — the action is absent on a draft — but the
+      // loader is the authority, so its refusal is surfaced rather than assumed
+      // impossible.
+      if (mounted) setState(() => _reportError = e.toString());
+    } catch (e) {
+      if (mounted) setState(() => _reportError = e.toString());
+    } finally {
+      if (mounted) setState(() => _stage = null);
+    }
+  }
+
+  static String _stageLabel(ReportStage stage) => switch (stage) {
+    ReportStage.loading => 'Collecting the inspection…',
+    ReportStage.rendering => 'Building the PDF…',
+    ReportStage.sharing => 'Opening share sheet…',
+  };
+
   @override
   Widget build(BuildContext context) {
     final i = widget.inspection;
@@ -82,6 +117,9 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
         previousPageTitle: 'Inspections',
         // Absent, not disabled: a greyed-out button invites a tap that can never
         // work. Submitted inspections simply have no add affordance.
+        // Draft gets the add action; submitted gets the report action. A draft
+        // has no report action at all rather than a disabled one — an
+        // affordance that can never succeed is worse than its absence (D21).
         trailing: _isEditable
             ? CupertinoButton(
                 key: const Key('add-item-button'),
@@ -89,7 +127,17 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                 onPressed: () => _edit(),
                 child: const Icon(CupertinoIcons.add, color: AppColors.blue),
               )
-            : null,
+            : CupertinoButton(
+                key: const Key('generate-report-button'),
+                padding: EdgeInsets.zero,
+                onPressed: _stage != null ? null : _generateReport,
+                child: _stage != null
+                    ? const CupertinoActivityIndicator()
+                    : const Icon(
+                        CupertinoIcons.doc_text,
+                        color: AppColors.blue,
+                      ),
+              ),
       ),
       child: SafeArea(
         child: ListView(
@@ -116,6 +164,33 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
               ],
             ),
             if (!_isEditable) _readOnlyNotice,
+            if (_stage != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: Row(
+                  children: [
+                    const CupertinoActivityIndicator(radius: 8),
+                    const SizedBox(width: 8),
+                    Text(
+                      _stageLabel(_stage!),
+                      key: const Key('report-progress'),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.label2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (_reportError != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: Text(
+                  _reportError!,
+                  key: const Key('report-error'),
+                  style: const TextStyle(fontSize: 13, color: AppColors.red),
+                ),
+              ),
             const SectionHeader(label: 'Punch list'),
             _items(),
             const SizedBox(height: 32),

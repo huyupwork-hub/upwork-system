@@ -18,6 +18,11 @@ dependencies:
   # Photo ids are generated client-side so the Storage path is known before the
   # upload starts, which is what makes cleanup and retry deterministic.
   uuid: ^4.5.1
+  # PDF document model. Generation is on-device and on demand; nothing is
+  # uploaded back to Supabase (D21).
+  pdf: ^3.11.1
+  # Only for the platform preview/share/save sheet, behind ReportSharer.
+  printing: ^5.13.4
 
 dev_dependencies:
   flutter_test:

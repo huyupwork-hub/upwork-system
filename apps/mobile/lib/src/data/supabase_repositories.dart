@@ -227,6 +227,13 @@ class SupabaseObjectStore implements PhotoObjectStore {
   Future<String> signedUrl(String path, Duration ttl) =>
       // The bucket is private; there is no public URL to fall back on.
       _client.storage.from(bucket).createSignedUrl(path, ttl.inSeconds);
+
+  @override
+  Future<List<int>> download(String path) async {
+    // Authenticated read through the same policies; not a public fetch.
+    final data = await _client.storage.from(bucket).download(path);
+    return data;
+  }
 }
 
 /// The metadata half.

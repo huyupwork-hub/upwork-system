@@ -19,6 +19,8 @@ abstract interface class PhotoObjectStore {
   Future<void> remove(String path);
 
   Future<String> signedUrl(String path, Duration ttl);
+
+  Future<List<int>> download(String path);
 }
 
 /// The `item_photos` table.

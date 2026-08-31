@@ -123,6 +123,14 @@ abstract interface class PhotosRepository {
 
   /// A short-lived signed URL. The bucket is private; there is no public URL.
   Future<String> signedUrl(ItemPhoto photo, {Duration ttl});
+
+  /// The object's bytes, for embedding in a report.
+  ///
+  /// Goes through the same private path and the same policies as everything
+  /// else — it is a read the caller was already entitled to, not a new access
+  /// route. Throws if the object cannot be read; the report says so explicitly
+  /// rather than dropping the photo.
+  Future<List<int>> bytes(ItemPhoto photo);
 }
 
 /// The metadata row was deleted but its Storage object could not be.

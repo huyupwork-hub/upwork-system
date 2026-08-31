@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../data/models.dart';
 import '../data/repositories.dart';
+import '../report/report_service.dart';
 import 'inspection_detail_screen.dart';
 import 'new_inspection_screen.dart';
 import 'theme.dart';
@@ -23,6 +24,7 @@ class InspectionsScreen extends StatefulWidget {
     required this.items,
     required this.photos,
     required this.source,
+    required this.reports,
   });
 
   final AuthRepository auth;
@@ -31,6 +33,7 @@ class InspectionsScreen extends StatefulWidget {
   final InspectionItemsRepository items;
   final PhotosRepository photos;
   final PhotoSource source;
+  final ReportService reports;
 
   @override
   State<InspectionsScreen> createState() => _InspectionsScreenState();
@@ -84,6 +87,7 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
           items: widget.items,
           photos: widget.photos,
           source: widget.source,
+          reports: widget.reports,
         ),
       ),
     );

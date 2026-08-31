@@ -2,7 +2,12 @@ import 'dart:async';
 
 import 'package:fieldproof/src/data/models.dart';
 import 'package:fieldproof/src/data/photo_workflow.dart';
+import 'dart:typed_data';
+
 import 'package:fieldproof/src/data/repositories.dart';
+import 'package:fieldproof/src/report/report_renderer.dart';
+import 'package:fieldproof/src/report/report_sharer.dart';
+import 'package:fieldproof/src/report/report_snapshot.dart';
 
 /// In-memory stand-ins. They model the *client* contract only. Access control is
 /// the database's job and is proven by the pgTAP suite in supabase/tests — these
@@ -262,6 +267,18 @@ class FakeObjectStore implements PhotoObjectStore {
   @override
   Future<String> signedUrl(String path, Duration ttl) async =>
       'https://example.test/signed/$path';
+
+  /// Set to make a download fail, so the report's 'photograph unavailable'
+  /// path can be exercised.
+  Object? failDownload;
+
+  @override
+  Future<List<int>> download(String path) async {
+    if (failDownload != null) throw failDownload!;
+    final bytes = objects[path];
+    if (bytes == null) throw StateError('no object at $path');
+    return bytes;
+  }
 }
 
 /// In-memory `item_photos`.
@@ -305,5 +322,34 @@ class FakePhotoMetadataStore implements PhotoMetadataStore {
     final before = rows.length;
     rows.removeWhere((r) => r.id == photoId);
     return rows.length != before;
+  }
+}
+
+
+/// Records what it was asked to render, and returns bytes that look like a PDF.
+class FakeReportRenderer implements ReportRenderer {
+  final List<ReportSnapshot> rendered = [];
+  Object? failWith;
+
+  @override
+  Future<Uint8List> render(ReportSnapshot snapshot) async {
+    if (failWith != null) throw failWith!;
+    rendered.add(snapshot);
+    return Uint8List.fromList('%PDF-1.7 fake'.codeUnits);
+  }
+}
+
+/// Stands in for the platform share sheet — no platform channel is loaded.
+class FakeReportSharer implements ReportSharer {
+  final List<String> filenames = [];
+  final List<Uint8List> shared = [];
+  Object? failWith;
+
+  @override
+  Future<bool> share(Uint8List bytes, {required String filename}) async {
+    if (failWith != null) throw failWith!;
+    shared.add(bytes);
+    filenames.add(filename);
+    return true;
   }
 }
