@@ -329,3 +329,104 @@ class ItemLimits {
       validateDescription(draft.description) == null &&
       validateArea(draft.area) == null;
 }
+
+// ---------------------------------------------------------------- photos
+
+/// A photo that has been persisted: a Storage object plus its metadata row.
+class ItemPhoto {
+  const ItemPhoto({
+    required this.id,
+    required this.itemId,
+    required this.inspectionId,
+    required this.storagePath,
+    required this.contentType,
+    required this.byteSize,
+    this.caption,
+    this.createdAt,
+  });
+
+  final String id;
+  final String itemId;
+  final String inspectionId;
+  final String storagePath;
+  final String contentType;
+  final int byteSize;
+  final String? caption;
+  final DateTime? createdAt;
+
+  factory ItemPhoto.fromRow(Map<String, dynamic> row) => ItemPhoto(
+    id: row['id'] as String,
+    itemId: row['item_id'] as String,
+    inspectionId: row['inspection_id'] as String,
+    storagePath: row['storage_path'] as String,
+    contentType: row['content_type'] as String,
+    byteSize: (row['byte_size'] as num).toInt(),
+    caption: row['caption'] as String?,
+    createdAt: row['created_at'] == null
+        ? null
+        : DateTime.parse(row['created_at'] as String),
+  );
+}
+
+/// Bytes handed back by a [PhotoSource], before anything has been uploaded.
+class CapturedPhoto {
+  const CapturedPhoto({
+    required this.bytes,
+    required this.contentType,
+  });
+
+  final List<int> bytes;
+  final String contentType;
+
+  int get byteSize => bytes.length;
+
+  /// Extension implied by the content type. Derived, never taken from the
+  /// filename a picker reports — a caller-supplied name must not decide where
+  /// the object lands.
+  String get extension => switch (contentType) {
+    'image/jpeg' => 'jpg',
+    'image/png' => 'png',
+    'image/webp' => 'webp',
+    _ => throw ArgumentError.value(contentType, 'contentType', 'unsupported'),
+  };
+}
+
+/// Mirrors the `item_photos` CHECK constraints, and the bucket's own limits.
+class PhotoLimits {
+  const PhotoLimits._();
+
+  static const int maxBytes = 10485760; // 10 MB
+  static const Set<String> allowedContentTypes = {
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  };
+
+  static String? validate(CapturedPhoto photo) {
+    if (!allowedContentTypes.contains(photo.contentType)) {
+      return 'Only JPEG, PNG and WebP images can be attached.';
+    }
+    if (photo.byteSize <= 0) return 'That image appears to be empty.';
+    if (photo.byteSize > maxBytes) {
+      return 'Images must be 10 MB or smaller.';
+    }
+    return null;
+  }
+
+  /// The one place a Storage path is constructed.
+  ///
+  /// `inspectorId` is the *authenticated* uid, supplied by the repository from
+  /// the live session — never by a caller. Storage policy compares path segment
+  /// [1] against `auth.uid()`, so a forged owner segment cannot be written; this
+  /// keeps the app from even forming one.
+  ///
+  /// Deterministic on purpose: given the metadata row, the object path is
+  /// recomputable, so cleanup and retry need no extra bookkeeping.
+  static String storagePath({
+    required String inspectorId,
+    required String inspectionId,
+    required String itemId,
+    required String photoId,
+    required String extension,
+  }) => '$inspectorId/$inspectionId/$itemId/$photoId.$extension';
+}

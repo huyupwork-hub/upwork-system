@@ -254,3 +254,40 @@ no rewrite of what exists.
 **Deliberately not done now:** no `revision_number`, no `parent_inspection_id`, no
 `revision_group_id`. Adding them speculatively would ship columns nothing reads, which is
 the kind of half-migration that constrains the real design later.
+
+### D19 — Photo write ordering, and what happens when half of it fails — *Accepted*
+Two stores, two orders, no distributed transaction.
+
+**Upload:** object first, then the metadata row. If the metadata insert fails, the
+just-uploaded object is deleted (compensation). The reverse order would briefly expose a
+row pointing at nothing, which renders as a broken image.
+
+**Delete:** metadata row first, then the object. If the object delete fails, the row stays
+deleted and `PhotoCleanupException` is thrown so the failure is visible.
+**Why that order:** an orphaned object is invisible to every query and reclaimable; an
+orphaned metadata row is a broken image in the UI. Recreating the row after a failed object
+delete would resurrect a photo the user asked to remove, so it is not attempted.
+**Why no cleanup queue:** the path is deterministic —
+`{inspector}/{inspection}/{item}/{photo}.{ext}` — and is recomputable from the metadata, so
+a reclaim pass can be written later without any bookkeeping added now. A queue would be a
+subsystem to maintain in exchange for tidying something nothing can see.
+**Testability is why the ports exist:** `PhotoObjectStore` and `PhotoMetadataStore` are two
+narrow interfaces so `photo_workflow_test.dart` can force "the metadata insert failed" and
+observe the compensation. A test that cannot force that proves nothing about the ordering.
+They are not an abstraction layer: one production implementation each, one fake each.
+
+### D20 — `image_picker`, behind a `PhotoSource` seam — *Accepted*
+Camera and gallery only, via `image_picker`. `ImagePickerPhotoSource` is the single file
+that imports it; everything above talks to the `PhotoSource` interface.
+**Why the seam:** a platform channel cannot run in `flutter test`, so without it the whole
+attach flow would be untestable on the host. With it, the widget tests drive a fake and the
+plugin boundary stays one file.
+**Capture evidence:** real camera capture is Android device/build evidence, not something a
+host-side test can prove. CI proves the app builds and that the attach flow works against a
+fake source; the hosted smoke proves the upload path against real Storage.
+**Content type comes from the bytes**, sniffed by magic number, not from the filename or
+the platform's claim — the same reason the storage path never trusts a caller. `image_picker`
+re-encodes when `imageQuality` is set, so its reported mime type is advisory at best.
+**The "compression pipeline" is a size cap and nothing more:** `maxWidth/maxHeight` 2048 and
+`imageQuality` 85, so a 12 MP phone photo does not arrive at 8 MB and get rejected after the
+user has waited for it.

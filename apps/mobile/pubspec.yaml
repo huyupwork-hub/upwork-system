@@ -12,6 +12,12 @@ dependencies:
   # The only runtime dependency. Auth, Postgres and Storage in one client.
   supabase_flutter: ^2.5.0
   cupertino_icons: ^1.0.8
+  # Camera + gallery only. Kept behind PhotoSource so tests never touch a
+  # platform channel; this is the one media plugin, not a stack of them.
+  image_picker: ^1.1.2
+  # Photo ids are generated client-side so the Storage path is known before the
+  # upload starts, which is what makes cleanup and retry deterministic.
+  uuid: ^4.5.1
 
 dev_dependencies:
   flutter_test:

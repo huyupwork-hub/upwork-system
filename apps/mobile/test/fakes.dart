@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fieldproof/src/data/models.dart';
+import 'package:fieldproof/src/data/photo_workflow.dart';
 import 'package:fieldproof/src/data/repositories.dart';
 
 /// In-memory stand-ins. They model the *client* contract only. Access control is
@@ -200,5 +201,105 @@ class FakeInspectionItemsRepository implements InspectionItemsRepository {
     if (rows.length == before) {
       throw const NotPermittedException('delete this item');
     }
+  }
+}
+
+/// A capture source that never touches a platform channel.
+class FakePhotoSource implements PhotoSource {
+  FakePhotoSource({this.next, this.failWith});
+
+  /// What the next pick returns. Null models the user cancelling.
+  CapturedPhoto? next = const CapturedPhoto(
+    bytes: [1, 2, 3, 4],
+    contentType: 'image/jpeg',
+  );
+  Object? failWith;
+
+  int cameraCalls = 0;
+  int galleryCalls = 0;
+
+  @override
+  Future<CapturedPhoto?> capture() async {
+    cameraCalls++;
+    if (failWith != null) throw failWith!;
+    return next;
+  }
+
+  @override
+  Future<CapturedPhoto?> pickFromGallery() async {
+    galleryCalls++;
+    if (failWith != null) throw failWith!;
+    return next;
+  }
+}
+
+/// In-memory bucket. Enforces no ownership rule — see the note on
+/// [FakeInspectionItemsRepository]; that is the database's job.
+class FakeObjectStore implements PhotoObjectStore {
+  final Map<String, List<int>> objects = {};
+  final List<String> removed = [];
+
+  Object? failPut;
+  Object? failRemove;
+
+  @override
+  Future<void> put(String path, List<int> bytes, String contentType) async {
+    if (failPut != null) throw failPut!;
+    objects[path] = bytes;
+  }
+
+  @override
+  Future<void> remove(String path) async {
+    if (failRemove != null) throw failRemove!;
+    removed.add(path);
+    objects.remove(path);
+  }
+
+  @override
+  Future<String> signedUrl(String path, Duration ttl) async =>
+      'https://example.test/signed/$path';
+}
+
+/// In-memory `item_photos`.
+class FakePhotoMetadataStore implements PhotoMetadataStore {
+  final List<ItemPhoto> rows = [];
+
+  Object? failInsert;
+
+  /// Models an RLS refusal: the delete matches nothing.
+  bool denyDelete = false;
+
+  @override
+  Future<List<ItemPhoto>> listFor(String itemId) async =>
+      List.unmodifiable(rows.where((r) => r.itemId == itemId));
+
+  @override
+  Future<ItemPhoto> insert({
+    required String photoId,
+    required String itemId,
+    required String inspectionId,
+    required String storagePath,
+    required String contentType,
+    required int byteSize,
+  }) async {
+    if (failInsert != null) throw failInsert!;
+    final photo = ItemPhoto(
+      id: photoId,
+      itemId: itemId,
+      inspectionId: inspectionId,
+      storagePath: storagePath,
+      contentType: contentType,
+      byteSize: byteSize,
+    );
+    rows.add(photo);
+    return photo;
+  }
+
+  @override
+  Future<bool> deleteById(String photoId) async {
+    if (denyDelete) return false;
+    final before = rows.length;
+    rows.removeWhere((r) => r.id == photoId);
+    return rows.length != before;
   }
 }

@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import '../data/models.dart';
 import '../data/repositories.dart';
 import 'item_editor_sheet.dart';
+import 'photo_strip.dart';
 import 'theme.dart';
 
 /// One inspection and its punch list.
@@ -21,10 +22,14 @@ class InspectionDetailScreen extends StatefulWidget {
     super.key,
     required this.inspection,
     required this.items,
+    required this.photos,
+    required this.source,
   });
 
   final Inspection inspection;
   final InspectionItemsRepository items;
+  final PhotosRepository photos;
+  final PhotoSource source;
 
   @override
   State<InspectionDetailScreen> createState() => _InspectionDetailScreenState();
@@ -60,6 +65,8 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
     final changed = await showItemEditorSheet(
       context,
       items: widget.items,
+      photos: widget.photos,
+      source: widget.source,
       inspectionId: widget.inspection.id,
       existing: existing,
     );

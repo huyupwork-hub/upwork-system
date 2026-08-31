@@ -21,12 +21,16 @@ class InspectionsScreen extends StatefulWidget {
     required this.profiles,
     required this.inspections,
     required this.items,
+    required this.photos,
+    required this.source,
   });
 
   final AuthRepository auth;
   final ProfileRepository profiles;
   final InspectionsRepository inspections;
   final InspectionItemsRepository items;
+  final PhotosRepository photos;
+  final PhotoSource source;
 
   @override
   State<InspectionsScreen> createState() => _InspectionsScreenState();
@@ -78,6 +82,8 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
         builder: (_) => InspectionDetailScreen(
           inspection: inspection,
           items: widget.items,
+          photos: widget.photos,
+          source: widget.source,
         ),
       ),
     );

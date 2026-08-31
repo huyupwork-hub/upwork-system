@@ -1,4 +1,5 @@
 import 'package:fieldproof/src/data/models.dart';
+import 'package:fieldproof/src/data/photo_workflow.dart';
 import 'package:fieldproof/src/ui/app.dart';
 import 'package:fieldproof/src/ui/inspections_screen.dart';
 import 'package:fieldproof/src/ui/new_inspection_screen.dart';
@@ -13,12 +14,24 @@ void main() {
   late FakeProfileRepository profiles;
   late FakeInspectionsRepository inspections;
   late FakeInspectionItemsRepository items;
+  late FakeObjectStore objectStore;
+  late FakePhotoMetadataStore photoMeta;
+  late PhotoWorkflow photos;
+  late FakePhotoSource source;
 
   setUp(() {
     auth = FakeAuthRepository();
     profiles = FakeProfileRepository();
     inspections = FakeInspectionsRepository();
     items = FakeInspectionItemsRepository();
+    objectStore = FakeObjectStore();
+    photoMeta = FakePhotoMetadataStore();
+    photos = PhotoWorkflow(
+      objects: objectStore,
+      metadata: photoMeta,
+      currentUserId: () => 'user-1',
+    );
+    source = FakePhotoSource();
   });
 
   tearDown(() => auth.dispose());
@@ -30,6 +43,8 @@ void main() {
         profiles: profiles,
         inspections: inspections,
         items: items,
+        photos: photos,
+        source: source,
       ),
     );
     await tester.pumpAndSettle();

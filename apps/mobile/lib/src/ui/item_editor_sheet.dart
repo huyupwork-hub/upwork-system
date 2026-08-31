@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../data/models.dart';
 import '../data/repositories.dart';
+import 'photo_strip.dart';
 import 'theme.dart';
 
 /// Presents the punch-item editor and returns true if anything was persisted.
@@ -11,6 +12,8 @@ import 'theme.dart';
 Future<bool?> showItemEditorSheet(
   BuildContext context, {
   required InspectionItemsRepository items,
+  required PhotosRepository photos,
+  required PhotoSource source,
   required String inspectionId,
   InspectionItem? existing,
 }) {
@@ -18,6 +21,8 @@ Future<bool?> showItemEditorSheet(
     context: context,
     builder: (_) => ItemEditorSheet(
       items: items,
+      photos: photos,
+      source: source,
       inspectionId: inspectionId,
       existing: existing,
     ),
@@ -33,11 +38,15 @@ class ItemEditorSheet extends StatefulWidget {
   const ItemEditorSheet({
     super.key,
     required this.items,
+    required this.photos,
+    required this.source,
     required this.inspectionId,
     this.existing,
   });
 
   final InspectionItemsRepository items;
+  final PhotosRepository photos;
+  final PhotoSource source;
   final String inspectionId;
   final InspectionItem? existing;
 
@@ -211,6 +220,20 @@ class _ItemEditorSheetState extends State<ItemEditorSheet> {
                       ),
                       const SectionHeader(label: 'Severity'),
                       _severityPicker(),
+                      // Photos need an item to attach to, so they appear only once the
+                      // item exists. Creating then attaching is one extra tap; the
+                      // alternative is holding bytes in memory against a row that may
+                      // never be saved.
+                      if (widget.isEditing) ...[
+                        const SectionHeader(label: 'Photos'),
+                        PhotoStrip(
+                          photos: widget.photos,
+                          source: widget.source,
+                          inspectionId: widget.inspectionId,
+                          itemId: widget.existing!.id,
+                          editable: true,
+                        ),
+                      ],
                       const SectionHeader(label: 'Status'),
                       _statusRow(),
                       if (_error != null)

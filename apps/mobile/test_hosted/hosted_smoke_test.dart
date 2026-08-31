@@ -28,9 +28,11 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:fieldproof/src/data/models.dart';
 import 'package:fieldproof/src/data/repositories.dart';
+import 'package:fieldproof/src/data/photo_workflow.dart';
 import 'package:fieldproof/src/data/supabase_repositories.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -89,6 +91,9 @@ void main() {
   late InspectionsRepository inspectionsB;
   late InspectionItemsRepository itemsA;
   late InspectionItemsRepository itemsB;
+  late PhotosRepository photosA;
+  late PhotosRepository photosB;
+  ItemPhoto? photo;
 
   InspectionItem? item;
 
@@ -128,6 +133,16 @@ void main() {
     inspectionsB = SupabaseInspectionsRepository(clientB);
     itemsA = SupabaseInspectionItemsRepository(clientA);
     itemsB = SupabaseInspectionItemsRepository(clientB);
+    photosA = PhotoWorkflow(
+      objects: SupabaseObjectStore(clientA),
+      metadata: SupabasePhotoMetadataStore(clientA),
+      currentUserId: () => userAId,
+    );
+    photosB = PhotoWorkflow(
+      objects: SupabaseObjectStore(clientB),
+      metadata: SupabasePhotoMetadataStore(clientB),
+      currentUserId: () => userBId,
+    );
   });
 
   tearDownAll(() async {
@@ -345,10 +360,172 @@ void main() {
     );
   });
 
-  test('15. user A deletes the item', () async {
-    await itemsA.delete(item!.id);
-    final rows = await itemsA.listFor(created!.id);
-    expect(rows.where((i) => i.id == item!.id), isEmpty);
+  // ------------------------------------------------------------ photos
+  //
+  // Real Supabase Storage: a real object is uploaded, read back through a signed
+  // URL, and removed. The bucket is private, so a plain GET of the path must not
+  // work — only the signed URL should.
+
+  test('15. user A uploads a photo to their own item', () async {
+    photo = await photosA.upload(
+      inspectionId: created!.id,
+      itemId: item!.id,
+      photo: const CapturedPhoto(bytes: _tinyPng, contentType: 'image/png'),
+    );
+
+    expect(photo!.itemId, item!.id);
+    expect(photo!.inspectionId, created!.id);
+    expect(photo!.byteSize, _tinyPng.length);
+    // The owner segment must be A's authenticated id, not anything a caller sent.
+    expect(photo!.storagePath, startsWith('$userAId/'));
+    expect(photo!.storagePath, endsWith('.png'));
+  });
+
+  test('16. the metadata row persists and is readable', () async {
+    final rows = await photosA.listFor(item!.id);
+    expect(rows.where((p) => p.id == photo!.id), hasLength(1));
+    expect(rows.single.storagePath, photo!.storagePath);
+  });
+
+  test('17. user A can read the object through a signed URL', () async {
+    final url = await photosA.signedUrl(photo!);
+    expect(url, contains(photo!.storagePath.split('/').last));
+
+    final signed = await http_get(url);
+    expect(signed.statusCode, 200, reason: 'the signed URL must resolve');
+    expect(signed.bodyBytes.length, _tinyPng.length);
+  });
+
+  test('18. the bucket is private: the unsigned path does not resolve',
+      () async {
+    final url = clientA.storage
+        .from(SupabaseObjectStore.bucket)
+        .getPublicUrl(photo!.storagePath);
+    final res = await http_get(url);
+    expect(res.statusCode, isNot(200),
+        reason: 'a public URL must not serve a private object');
+  });
+
+  test('19. user B cannot read, sign, or delete user A photo', () async {
+    final visible = await photosB.listFor(item!.id);
+    expect(visible, isEmpty, reason: 'B cannot list A photo metadata');
+
+    final byId = await clientB
+        .from('item_photos')
+        .select('id')
+        .eq('id', photo!.id);
+    expect(byId, isEmpty, reason: 'nor read the row by direct id');
+
+    // Storage refuses too, so neither half alone is load-bearing.
+    await expectLater(
+      clientB.storage
+          .from(SupabaseObjectStore.bucket)
+          .createSignedUrl(photo!.storagePath, 60),
+      throwsA(isA<StorageException>()),
+    );
+
+    await expectLater(
+      photosB.delete(photo!),
+      throwsA(isA<NotPermittedException>()),
+    );
+
+    final after = await clientA
+        .from('item_photos')
+        .select('id')
+        .eq('id', photo!.id);
+    expect(after, hasLength(1), reason: 'B must not have deleted it');
+  });
+
+  test('20. user B cannot upload under user A prefix', () async {
+    await expectLater(
+      clientB.storage
+          .from(SupabaseObjectStore.bucket)
+          .uploadBinary(
+            '$userAId/${created!.id}/${item!.id}/forged.png',
+            Uint8List.fromList(_tinyPng),
+          ),
+      throwsA(isA<StorageException>()),
+    );
+  });
+
+  test('21. user A deletes the photo while the inspection is a draft',
+      () async {
+    await photosA.delete(photo!);
+
+    final rows = await photosA.listFor(item!.id);
+    expect(rows, isEmpty, reason: 'metadata is gone');
+
+    // And the object with it: a signed URL for a deleted object must not serve.
+    final res = await http_get(
+      clientA.storage
+          .from(SupabaseObjectStore.bucket)
+          .getPublicUrl(photo!.storagePath),
+    );
+    expect(res.statusCode, isNot(200), reason: 'the object is gone');
+    photo = null;
+  });
+
+  test('22. a submitted inspection rejects photo mutation', () async {
+    // Submit, then attempt to attach. D17 must refuse at the database.
+    await clientA
+        .from('inspections')
+        .update({'status': 'submitted'})
+        .eq('id', created!.id);
+
+    final status = await clientA
+        .from('inspections')
+        .select('status')
+        .eq('id', created!.id)
+        .single();
+    expect(status['status'], 'submitted', reason: 'the submit itself works');
+
+    await expectLater(
+      photosA.upload(
+        inspectionId: created!.id,
+        itemId: item!.id,
+        photo: const CapturedPhoto(bytes: _tinyPng, contentType: 'image/png'),
+      ),
+      throwsA(anything),
+      reason: 'no photo may be added under a submitted inspection',
+    );
+  });
+
+  test('23. user A cannot delete the item once submitted', () async {
+    await expectLater(
+      itemsA.delete(item!.id),
+      throwsA(isA<NotPermittedException>()),
+    );
     item = null;
   });
+}
+
+/// A 1x1 PNG. Small enough to upload in a smoke test, real enough to be a valid
+/// image rather than arbitrary bytes.
+const List<int> _tinyPng = [
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, //
+  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+  0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+  0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+  0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+  0x42, 0x60, 0x82,
+];
+
+/// A plain GET, so the test can check what a private object does and does not
+/// serve. Uses dart:io directly rather than adding an http dependency.
+Future<({int statusCode, List<int> bodyBytes})> http_get(String url) async {
+  final client = HttpClient();
+  try {
+    final req = await client.getUrl(Uri.parse(url));
+    final res = await req.close();
+    final bytes = <int>[];
+    await for (final chunk in res) {
+      bytes.addAll(chunk);
+    }
+    return (statusCode: res.statusCode, bodyBytes: bytes);
+  } finally {
+    client.close(force: true);
+  }
 }

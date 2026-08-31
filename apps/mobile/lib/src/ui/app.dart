@@ -14,12 +14,16 @@ class FieldProofApp extends StatelessWidget {
     required this.profiles,
     required this.inspections,
     required this.items,
+    required this.photos,
+    required this.source,
   });
 
   final AuthRepository auth;
   final ProfileRepository profiles;
   final InspectionsRepository inspections;
   final InspectionItemsRepository items;
+  final PhotosRepository photos;
+  final PhotoSource source;
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +36,8 @@ class FieldProofApp extends StatelessWidget {
         profiles: profiles,
         inspections: inspections,
         items: items,
+        photos: photos,
+        source: source,
       ),
     );
   }
@@ -47,12 +53,16 @@ class AuthGate extends StatelessWidget {
     required this.profiles,
     required this.inspections,
     required this.items,
+    required this.photos,
+    required this.source,
   });
 
   final AuthRepository auth;
   final ProfileRepository profiles;
   final InspectionsRepository inspections;
   final InspectionItemsRepository items;
+  final PhotosRepository photos;
+  final PhotoSource source;
 
   @override
   Widget build(BuildContext context) {
@@ -70,6 +80,8 @@ class AuthGate extends StatelessWidget {
           profiles: profiles,
           inspections: inspections,
           items: items,
+          photos: photos,
+          source: source,
         );
       },
     );

@@ -2,6 +2,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'src/config/env.dart';
+import 'src/data/image_picker_photo_source.dart';
+import 'src/data/photo_workflow.dart';
 import 'src/data/supabase_repositories.dart';
 import 'src/ui/app.dart';
 
@@ -26,6 +28,12 @@ Future<void> main() async {
       profiles: SupabaseProfileRepository(client),
       inspections: SupabaseInspectionsRepository(client),
       items: SupabaseInspectionItemsRepository(client),
+      photos: PhotoWorkflow(
+        objects: SupabaseObjectStore(client),
+        metadata: SupabasePhotoMetadataStore(client),
+        currentUserId: () => client.auth.currentUser!.id,
+      ),
+      source: ImagePickerPhotoSource(),
     ),
   );
 }

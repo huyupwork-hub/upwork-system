@@ -86,3 +86,71 @@ class NotPermittedException implements Exception {
   String toString() =>
       'Not permitted to $action. It may belong to another inspector.';
 }
+
+/// Where photo bytes come from.
+///
+/// This exists so the widget tests never touch a platform channel. There is one
+/// production implementation (`ImagePickerPhotoSource`) and one fake; it is not
+/// a media abstraction layer, just the seam at the plugin boundary.
+abstract interface class PhotoSource {
+  /// Null when the user cancels — cancelling is not an error.
+  Future<CapturedPhoto?> capture();
+
+  Future<CapturedPhoto?> pickFromGallery();
+}
+
+abstract interface class PhotosRepository {
+  /// Photos attached to one item, oldest first.
+  Future<List<ItemPhoto>> listFor(String itemId);
+
+  /// Uploads the object, then inserts its metadata row.
+  ///
+  /// If the metadata insert fails, the just-uploaded object is deleted so the
+  /// bucket is not left holding something nothing references.
+  Future<ItemPhoto> upload({
+    required String inspectionId,
+    required String itemId,
+    required CapturedPhoto photo,
+  });
+
+  /// Deletes the metadata row first, then the object.
+  ///
+  /// That order is deliberate: an orphaned object is invisible and reclaimable,
+  /// whereas an orphaned metadata row renders as a broken image. If the object
+  /// delete fails afterwards the row stays deleted and [PhotoCleanupException]
+  /// is thrown so the failure is visible rather than silently swallowed.
+  Future<void> delete(ItemPhoto photo);
+
+  /// A short-lived signed URL. The bucket is private; there is no public URL.
+  Future<String> signedUrl(ItemPhoto photo, {Duration ttl});
+}
+
+/// The metadata row was deleted but its Storage object could not be.
+///
+/// Deliberately not a silent failure and deliberately not a rollback: the row is
+/// gone, and recreating it would resurrect a photo the user asked to remove.
+/// The object is orphaned, invisible to every query, and its path is
+/// recomputable from the id, so it can be reclaimed later without a queue.
+class PhotoCleanupException implements Exception {
+  const PhotoCleanupException(this.storagePath, this.cause);
+
+  final String storagePath;
+  final Object cause;
+
+  @override
+  String toString() =>
+      'The photo was removed, but its stored file could not be deleted '
+      '($storagePath): $cause';
+}
+
+/// The photo failed the client-side size or content-type guard.
+///
+/// The same limits exist as CHECK constraints on `item_photos` and on the
+/// bucket; this stops a doomed upload before it spends the user's bandwidth.
+class PhotoRejectedException implements Exception {
+  const PhotoRejectedException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}

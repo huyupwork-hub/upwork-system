@@ -6,9 +6,13 @@
 /// policies in supabase/migrations/20260831000300_rls.sql.
 library;
 
+import 'dart:typed_data';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import 'models.dart';
+import 'photo_workflow.dart';
 import 'repositories.dart';
 
 class SupabaseAuthRepository implements AuthRepository {
@@ -195,5 +199,93 @@ class SupabaseInspectionItemsRepository implements InspectionItemsRepository {
     if (rows.isEmpty) {
       throw const NotPermittedException('delete this item');
     }
+  }
+}
+
+/// The bucket half of the photo workflow.
+class SupabaseObjectStore implements PhotoObjectStore {
+  SupabaseObjectStore(this._client);
+
+  final SupabaseClient _client;
+
+  static const String bucket = 'inspection-photos';
+
+  @override
+  Future<void> put(String path, List<int> bytes, String contentType) async {
+    await _client.storage
+        .from(bucket)
+        .uploadBinary(
+          path,
+          Uint8List.fromList(bytes),
+          fileOptions: FileOptions(contentType: contentType),
+        );
+  }
+
+  @override
+  Future<void> remove(String path) async {
+    await _client.storage.from(bucket).remove([path]);
+  }
+
+  @override
+  Future<String> signedUrl(String path, Duration ttl) =>
+      // The bucket is private; there is no public URL to fall back on.
+      _client.storage.from(bucket).createSignedUrl(path, ttl.inSeconds);
+}
+
+/// The metadata half.
+class SupabasePhotoMetadataStore implements PhotoMetadataStore {
+  SupabasePhotoMetadataStore(this._client);
+
+  final SupabaseClient _client;
+
+  static const String _columns =
+      'id, item_id, inspection_id, storage_path, caption, '
+      'content_type, byte_size, created_at';
+
+  @override
+  Future<List<ItemPhoto>> listFor(String itemId) async {
+    if (_client.auth.currentUser == null) throw const NotSignedInException();
+    final rows = await _client
+        .from('item_photos')
+        .select(_columns)
+        .eq('item_id', itemId)
+        .order('created_at');
+    return rows.map(ItemPhoto.fromRow).toList(growable: false);
+  }
+
+  @override
+  Future<ItemPhoto> insert({
+    required String photoId,
+    required String itemId,
+    required String inspectionId,
+    required String storagePath,
+    required String contentType,
+    required int byteSize,
+  }) async {
+    final row = await _client
+        .from('item_photos')
+        .insert({
+          'id': photoId,
+          'item_id': itemId,
+          'inspection_id': inspectionId,
+          'storage_path': storagePath,
+          'content_type': contentType,
+          'byte_size': byteSize,
+        })
+        .select(_columns)
+        .single();
+    return ItemPhoto.fromRow(row);
+  }
+
+  @override
+  Future<bool> deleteById(String photoId) async {
+    // RLS refuses a non-owner's delete by matching zero rows, silently, so an
+    // empty result means refused rather than already-absent.
+    final rows = await _client
+        .from('item_photos')
+        .delete()
+        .eq('id', photoId)
+        .select('id');
+    return rows.isNotEmpty;
   }
 }
