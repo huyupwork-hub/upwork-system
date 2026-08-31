@@ -9,11 +9,13 @@ import 'theme.dart';
 
 /// One inspection and its punch list.
 ///
-/// Items are editable regardless of the inspection's status. That is the accepted
-/// contract, not an oversight: `inspection_items_update_own` gates on ownership
-/// only, and D10 records that locking a submitted inspection's content was
-/// considered and not adopted. A UI-only lock would be theatre — the database
-/// would still accept the write.
+/// A submitted inspection is read-only (D17): no add, no edit, no delete. The
+/// database enforces this — the write policies require the parent to be `draft`
+/// — so what follows is presentation, not protection. It exists so the app does
+/// not offer an action the server will refuse.
+///
+/// There is no unsubmit. Changing submitted work will eventually mean creating a
+/// new draft revision (D18), which is not implemented in V1.
 class InspectionDetailScreen extends StatefulWidget {
   const InspectionDetailScreen({
     super.key,
@@ -49,7 +51,13 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
     }
   }
 
+  /// Submitted work is frozen (D17). The database refuses the write regardless;
+  /// this only stops the app offering it.
+  bool get _isEditable =>
+      widget.inspection.status == InspectionStatus.draft;
+
   Future<void> _edit([InspectionItem? existing]) async {
+    if (!_isEditable) return;
     final changed = await showItemEditorSheet(
       context,
       items: widget.items,
@@ -67,12 +75,16 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
       navigationBar: CupertinoNavigationBar(
         middle: const Text('Inspection'),
         previousPageTitle: 'Inspections',
-        trailing: CupertinoButton(
-          key: const Key('add-item-button'),
-          padding: EdgeInsets.zero,
-          onPressed: () => _edit(),
-          child: const Icon(CupertinoIcons.add, color: AppColors.blue),
-        ),
+        // Absent, not disabled: a greyed-out button invites a tap that can never
+        // work. Submitted inspections simply have no add affordance.
+        trailing: _isEditable
+            ? CupertinoButton(
+                key: const Key('add-item-button'),
+                padding: EdgeInsets.zero,
+                onPressed: () => _edit(),
+                child: const Icon(CupertinoIcons.add, color: AppColors.blue),
+              )
+            : null,
       ),
       child: SafeArea(
         child: ListView(
@@ -98,6 +110,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                 ),
               ],
             ),
+            if (!_isEditable) _readOnlyNotice(),
             const SectionHeader(label: 'Punch list'),
             _items(),
             const SizedBox(height: 32),
@@ -106,6 +119,33 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
       ),
     );
   }
+
+  /// Says why the screen is inert, rather than leaving the user to discover it
+  /// by tapping things that do nothing.
+  Widget _readOnlyNotice() => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 1, right: 6),
+          child: Icon(
+            CupertinoIcons.lock_fill,
+            size: 13,
+            color: AppColors.label2,
+          ),
+        ),
+        const Expanded(
+          child: Text(
+            'Submitted — this inspection is a permanent record and can no '
+            'longer be changed.',
+            key: Key('read-only-notice'),
+            style: TextStyle(fontSize: 13, color: AppColors.label2),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _items() {
     if (_error != null) {
@@ -135,30 +175,36 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
     }
 
     if (rows.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.fromLTRB(32, 24, 32, 24),
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(32, 24, 32, 24),
         child: Text(
-          'No items yet.\nTap + to add the first defect.',
-          key: Key('items-empty'),
+          // Don't invite a tap the screen cannot honour.
+          _isEditable
+              ? 'No items yet.\nTap + to add the first defect.'
+              : 'No items were recorded.',
+          key: const Key('items-empty'),
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 17, color: AppColors.label2),
+          style: const TextStyle(fontSize: 17, color: AppColors.label2),
         ),
       );
     }
 
     return InsetCard(
       children: [
-        for (final row in rows) _ItemRow(item: row, onTap: () => _edit(row)),
+        for (final row in rows)
+          _ItemRow(item: row, onTap: _isEditable ? () => _edit(row) : null),
       ],
     );
   }
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.item, required this.onTap});
+  const _ItemRow({required this.item, this.onTap});
 
   final InspectionItem item;
-  final VoidCallback onTap;
+
+  /// Null on a submitted inspection: the row is a record, not a control.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -220,12 +266,16 @@ class _ItemRow extends StatelessWidget {
                 ),
               ),
             SeverityChip(severity: item.severity),
-            const SizedBox(width: 6),
-            const Icon(
-              CupertinoIcons.chevron_forward,
-              size: 16,
-              color: AppColors.label3,
-            ),
+            // No chevron when the row is not tappable — it would promise an
+            // interaction that does not exist.
+            if (onTap != null) ...[
+              const SizedBox(width: 6),
+              const Icon(
+                CupertinoIcons.chevron_forward,
+                size: 16,
+                color: AppColors.label3,
+              ),
+            ],
           ],
         ),
       ),

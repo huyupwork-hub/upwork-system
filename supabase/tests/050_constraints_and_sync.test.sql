@@ -44,26 +44,9 @@ select throws_ok(
   '23503', null, 'a photo cannot claim an inspection its parent item does not belong to'
 );
 
--- ---------------------------------------------------------------- D10: one-way submit
-
-select lives_ok(
-  $$update public.inspections set status = 'submitted'
-    where id = 'a0000000-0000-4000-8000-000000000001'$$,
-  'an inspector can submit their own draft'
-);
-
-select isnt(
-  (select submitted_at from public.inspections where id = 'a0000000-0000-4000-8000-000000000001'),
-  null,
-  'submitted_at is stamped automatically on submission'
-);
-
-select throws_ok(
-  $$update public.inspections set status = 'draft', submitted_at = null
-    where id = 'a0000000-0000-4000-8000-000000000001'$$,
-  '23514', null,
-  'D10: a submitted inspection cannot be returned to draft'
-);
+-- Submission is deliberately exercised at the END of this file. Under D17 a
+-- submitted inspection is immutable, so submitting DRAFT_A early would deny
+-- every constraint, cascade and idempotency assertion that follows it.
 
 -- ---------------------------------------------------------------- D5: first sync
 
@@ -121,19 +104,66 @@ select throws_ok(
 );
 
 -- ---------------------------------------------------------------- B4: cascade
+--
+-- Uses the draft created above rather than DRAFT_A, so the cascade is proven on
+-- a row that is unambiguously still mutable under D17.
 
 select lives_ok(
-  $$delete from public.inspections where id = 'a0000000-0000-4000-8000-000000000001'$$,
-  'an inspector can delete their own inspection'
+  $$insert into public.item_photos
+      (item_id, inspection_id, storage_path, content_type, byte_size)
+    values ('c1000000-0000-4000-8000-000000000001',
+            'c0000000-0000-4000-8000-000000000001',
+            '11111111-1111-4111-8111-111111111111/c0000000-0000-4000-8000-000000000001/c1000000-0000-4000-8000-000000000001/photo.jpg',
+            'image/jpeg', 1024)$$,
+  'a photo can be attached under a draft inspection'
+);
+
+select lives_ok(
+  $$delete from public.inspections where id = 'c0000000-0000-4000-8000-000000000001'$$,
+  'an inspector can delete their own draft inspection'
 );
 
 reset role;
 select is((select count(*)::int from public.inspection_items
-           where inspection_id = 'a0000000-0000-4000-8000-000000000001'), 0,
+           where inspection_id = 'c0000000-0000-4000-8000-000000000001'), 0,
   'deleting an inspection cascades to its items');
 select is((select count(*)::int from public.item_photos
-           where inspection_id = 'a0000000-0000-4000-8000-000000000001'), 0,
+           where inspection_id = 'c0000000-0000-4000-8000-000000000001'), 0,
   'deleting an inspection cascades to its photos');
+
+-- ---------------------------------------------------------------- D10 + D17: submission
+
+set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}';
+set local role authenticated;
+
+select lives_ok(
+  $$update public.inspections set status = 'submitted'
+    where id = 'a0000000-0000-4000-8000-000000000001'$$,
+  'an inspector can submit their own draft'
+);
+
+select isnt(
+  (select submitted_at from public.inspections where id = 'a0000000-0000-4000-8000-000000000001'),
+  null,
+  'submitted_at is stamped automatically on submission'
+);
+
+-- Under D17 the update policy's USING clause no longer matches a submitted row,
+-- so this is denied silently by matching nothing rather than raising from the
+-- D10 trigger. The trigger remains as defence in depth; RLS simply refuses
+-- first, so the assertion is about the data, not an exception.
+select lives_ok(
+  $$update public.inspections set status = 'draft', submitted_at = null
+    where id = 'a0000000-0000-4000-8000-000000000001'$$,
+  'attempting to un-submit does not raise'
+);
+
+select is(
+  (select status::text from public.inspections
+   where id = 'a0000000-0000-4000-8000-000000000001'),
+  'submitted',
+  'D10/D17: a submitted inspection cannot be returned to draft'
+);
 
 select * from finish();
 rollback;

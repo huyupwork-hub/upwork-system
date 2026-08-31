@@ -175,6 +175,79 @@ void main() {
     });
   });
 
+  group('submitted inspections are read-only (D17)', () {
+    final submitted = Inspection(
+      id: 'insp-2',
+      inspectorId: 'user-1',
+      siteName: 'Northgate Retail Park',
+      inspectionDate: DateTime(2026, 8, 22),
+      status: InspectionStatus.submitted,
+    );
+
+    Future<void> openSubmitted(WidgetTester tester) async {
+      inspections.rows
+        ..clear()
+        ..add(submitted);
+      items.rows.add(
+        InspectionItem(
+          id: 'item-x',
+          inspectionId: 'insp-2',
+          sortOrder: 0,
+          title: 'Recorded defect',
+          severity: ItemSeverity.high,
+          status: ItemStatus.open,
+        ),
+      );
+
+      await tester.pumpWidget(
+        FieldProofApp(
+          auth: auth,
+          profiles: profiles,
+          inspections: inspections,
+          items: items,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final fields = find.byType(CupertinoTextField);
+      await tester.enterText(fields.at(0), 'a@example.com');
+      await tester.enterText(fields.at(1), 'correct-horse');
+      await tester.tap(find.widgetWithText(CupertinoButton, 'Sign In'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Northgate Retail Park'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('there is no add affordance', (tester) async {
+      await openSubmitted(tester);
+      expect(find.byType(InspectionDetailScreen), findsOneWidget);
+      expect(find.byKey(const Key('add-item-button')), findsNothing);
+    });
+
+    testWidgets('it says why it is read-only', (tester) async {
+      await openSubmitted(tester);
+      expect(find.byKey(const Key('read-only-notice')), findsOneWidget);
+    });
+
+    testWidgets('tapping an item does not open the editor', (tester) async {
+      await openSubmitted(tester);
+      await tester.tap(find.text('Recorded defect'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ItemEditorSheet), findsNothing);
+    });
+
+    testWidgets('items are still readable', (tester) async {
+      await openSubmitted(tester);
+      expect(find.text('Recorded defect'), findsOneWidget);
+      expect(find.text('High'), findsWidgets);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('detail-status'))).data,
+        'Submitted',
+      );
+    });
+  });
+
   group('edit, resolve and delete', () {
     Future<void> seedOne(WidgetTester tester) async {
       await openDetail(tester);

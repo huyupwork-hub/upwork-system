@@ -94,8 +94,9 @@ gate would be unenforceable. Fails closed.
 **Flagged:** this was not explicitly specified. It is the only reading consistent with D3,
 but if inspectors should be able to recall a submission, drop the
 `inspections_enforce_submission` trigger — one line, no schema change.
-**Not decided:** a submitted inspection currently remains editable by its owner. Locking
-content on submission would be a larger change and is not required by the stated workflow.
+**Superseded in part by D17:** the question of whether a submitted inspection stays
+editable was left open here and is now closed — it does not. See D17 for the enforcement
+and D18 for how post-submit changes will eventually be made.
 
 ### D11 — Realtime is disabled in config; the service box verifies the database only — *Accepted*
 `supabase/config.toml` sets `[realtime] enabled = false`. Local verification runs
@@ -210,3 +211,46 @@ parallelism would trade a working build for an out-of-memory one.
 `/data/docker` bind-mounted to `/var/lib/docker`. `/data` must remain traversable
 (`0755`); it was `0710` at first because Docker hardens its own data root, which is what
 broke the Gradle lock file.
+
+### D17 — A submitted inspection is immutable — *Accepted*
+Once `inspections.status = 'submitted'`, the owning inspector can no longer edit or
+delete the inspection, its items, or its photos. Reads are unaffected; admin behaviour
+(D3) is unchanged; there is no unsubmit.
+**Enforced in the database**, in `20260831000500_submitted_immutable.sql`, not in Flutter:
+every write policy on `inspections`, `inspection_items`, `item_photos` and the storage
+bucket now requires the governing inspection to be `draft`. A UI-only lock would leave the
+write path open to any client holding a valid JWT.
+**Why this supersedes D10's open question:** D10 recorded that a submitted inspection
+remained editable and that locking it had been considered but not adopted. That left a real
+integrity hole — what an admin reviewed could change underneath them, silently.
+**The mechanism that makes submission still possible:** an UPDATE policy's `USING` clause is
+evaluated against the OLD row and `WITH CHECK` against the NEW one. `using (status =
+'draft')` therefore still permits the draft → submitted transition itself, while refusing
+every subsequent update. `WITH CHECK` must *not* require draft, or submitting would deny
+itself. This is the subtle part, and `070_submitted_immutable.test.sql` asserts both halves.
+**Consequence for D10's trigger:** `enforce_submission_transition` now rarely fires, because
+RLS refuses first — a denied update matches zero rows rather than raising. The trigger stays
+as defence in depth and to stamp `submitted_at`. Test `050` was rewritten accordingly: it
+now asserts the un-submit is denied *silently* and verifies the data, rather than expecting
+the trigger's exception.
+
+### D18 — Post-submit changes will create a new revision, not mutate the submitted one — *Accepted (deferred)*
+The intended future mechanism is `submitted revision → Create Revision → new draft
+revision`. The earlier submitted revision stays immutable and permanently represents what
+was issued at that time.
+**Not implemented in V1.** Doing it correctly means cloning items and photos, revision
+numbering, history, PDF revision selection, and the integrity rules binding those together
+— a slice of its own, not a corner of this one.
+**V1 behaviour is therefore:** draft editable, submitted read-only, no unsubmit, no direct
+mutation after submit, and no Create Revision action.
+**Compatibility check performed, so revisioning is not accidentally foreclosed:** the only
+unique constraints in the schema are `inspection_items (id, inspection_id)` — per-row — and
+`item_photos.storage_path`, which is global but embeds the inspection, item and photo ids.
+A cloned revision receives fresh UUIDs and therefore fresh paths, so revisions of the same
+site cannot collide. Nothing keys on `(site_name, inspection_date)` or similar, so two
+revisions of one site coexist without conflict. Adding revisions later means new columns
+(a revision number and a link to the previous revision) plus clone logic — additive, with
+no rewrite of what exists.
+**Deliberately not done now:** no `revision_number`, no `parent_inspection_id`, no
+`revision_group_id`. Adding them speculatively would ship columns nothing reads, which is
+the kind of half-migration that constrains the real design later.
