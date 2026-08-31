@@ -71,6 +71,7 @@ Directories are created when they have a purpose, not to match a template.
 docs/                    specification, acceptance, data model, decisions
 supabase/migrations/     schema + RLS (materialised on Gate 0 acceptance)
 supabase/tests/          pgTAP RLS suite
+scripts/                 local database verification runner
 .github/workflows/       CI quality gates
 ```
 
@@ -89,18 +90,38 @@ supabase test db              # pgTAP suite
 supabase test db && supabase test db   # K5: repeatable, no ordering dependence
 ```
 
-To reproduce locally, with Docker and the Supabase CLI installed:
-
-```bash
-supabase start
-supabase db reset
-supabase test db
-```
-
 Each test file runs inside `begin; … rollback;`, so the suite leaves no residue and can be
 re-run without a reset. Fixtures live in `supabase/seed.sql` with fixed UUIDs — three
 users (two inspectors, one admin), three inspections (two drafts, one submitted), four
 items, three photos. Nothing more than the RLS matrix needs.
+
+### Local database verification (service box)
+
+The database gate also runs on a low-powered Linux box, on Postgres alone:
+
+```bash
+./scripts/db-verify.sh          # db start -> reset --no-seed -> reset -> test db x3
+npx supabase stop               # teardown
+```
+
+`supabase db start` brings up the database container only. The `auth` and `storage`
+schemas are still created — the CLI applies them as one-shot migration jobs during database
+startup rather than from the running services — so the RLS and storage-policy assertions all
+hold. **Realtime must stay disabled** (`[realtime] enabled = false`, D11): the CLI runs the
+Realtime seeder from inside database startup, and `supabase start -x realtime` does *not*
+skip it. On a pre-AVX CPU that seeder aborts with SIGILL (exit 132) before any migration is
+applied. CI enforces the flag.
+
+**Limitation, local only:** the service box exercises migrations, Postgres, pgTAP and RLS.
+GoTrue, Storage, PostgREST, Kong, Studio and Edge Runtime are not running there, so real JWT
+issuance, signed URLs and the Data API stay CI-only. CI is still authoritative (D1).
+
+If the box is suspected of an instruction-set problem, confirm before blaming the image:
+
+```bash
+lscpu | sed -n '1,15p'
+grep -o -E 'avx2?|sse4_2|popcnt' /proc/cpuinfo | sort -u     # Westmere: sse4_2, no avx
+```
 
 ### What has actually been verified so far
 

@@ -96,3 +96,29 @@ but if inspectors should be able to recall a submission, drop the
 `inspections_enforce_submission` trigger — one line, no schema change.
 **Not decided:** a submitted inspection currently remains editable by its owner. Locking
 content on submission would be a larger change and is not required by the stated workflow.
+
+### D11 — Realtime is disabled in config; the service box verifies the database only — *Accepted*
+`supabase/config.toml` sets `[realtime] enabled = false`. Local verification runs
+`./scripts/db-verify.sh`, which brings up Postgres alone (`supabase db start`) and runs the
+migration and pgTAP gates against it.
+**Why the flag and not `supabase start -x realtime`:** the CLI runs the Realtime image as a
+one-shot seeding job from inside *database* startup, not as part of the service phase.
+`internal/db/start.initSchema15` appends `initRealtimeJob` whenever `Config.Realtime.Enabled`
+is set, and does so before the project's own migrations are applied. The `-x` list only
+filters the long-running containers, so `-x realtime` never reaches that job — excluding the
+service does not skip the seeder. On the T410s service box the seeder aborts with SIGILL
+(exit 132) inside the Realtime image's Erlang runtime, which is consistent with the image
+being built for a newer x86-64 baseline than that CPU provides. The flag is the only
+supported switch that removes the job.
+**Consequence for CI:** `supabase start` no longer boots the Realtime container. Nothing in
+the suite ever asserted against Realtime, so no coverage is lost, and CI gains a step that
+fails the build if the flag is flipped back — otherwise the service box breaks silently.
+**Local-only limitation:** the service box exercises the database gate only — migrations,
+Postgres, pgTAP, RLS. The `auth` and `storage` *schemas* are present, because the CLI applies
+them as migration jobs during database startup rather than from the running services, so the
+policies in `20260831000400_storage.sql` are testable. GoTrue, Storage, PostgREST, Kong,
+Studio and Edge Runtime are not running, so nothing requiring an HTTP endpoint — real JWT
+issuance, signed URLs, the Data API — can be exercised there. Those stay CI-only. D1 is
+unchanged: CI remains authoritative.
+**Reversal:** if Realtime ever enters scope, set the flag to `true` and drop the CI guard.
+The service box would then need different hardware, not a different config.

@@ -4,3 +4,14 @@ project_id = "fieldproof"
 
 [db]
 major_version = 15
+
+# Realtime is not in FieldProof V1 scope, and leaving it enabled makes the local database
+# unusable on pre-AVX hardware. The CLI runs the Realtime image as a one-shot seeding job
+# from inside *database* startup (`internal/db/start.initSchema15`), before any project
+# migration is applied. That job is gated on this flag alone — `supabase start -x realtime`
+# only filters long-running containers and never reaches it, which is why excluding the
+# service does not avoid the crash. See docs/DECISIONS.md D11.
+#
+# Flip to true only when Realtime enters product scope. CI asserts it stays false.
+[realtime]
+enabled = false

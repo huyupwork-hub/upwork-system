@@ -74,6 +74,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The DB-only local path depends on Realtime staying off. The CLI runs the Realtime
+      # seeder from inside database startup, gated on [realtime].enabled and not on the
+      # "supabase start -x realtime" exclusion list, so re-enabling it here silently breaks
+      # any machine whose CPU predates the image's instruction-set baseline (D11).
+      - name: Realtime stays disabled in supabase/config.toml
+        run: |
+          set -euo pipefail
+          section=$(awk '/^\[realtime\]/{f=1;next} /^\[/{f=0} f' supabase/config.toml)
+          if ! printf '%s\n' "$section" | grep -qE '^[[:space:]]*enabled[[:space:]]*=[[:space:]]*false[[:space:]]*$'; then
+            echo "::error::supabase/config.toml must keep [realtime] enabled = false (docs/DECISIONS.md D11)."
+            exit 1
+          fi
+
       - uses: supabase/setup-cli@v1
         with:
           version: latest
