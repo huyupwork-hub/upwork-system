@@ -16,9 +16,9 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| A1 | ◐ An existing user signs in with email + password. **Sign-up is out of V1 scope (D13)** — accounts come from the dashboard or seed. | Flutter test written — awaiting first CI run |
+| A1 | ◐ An existing user signs in with email + password. **Sign-up is out of V1 scope (D13)** — accounts come from the dashboard or seed. | Widget test ✅ run `606017a`, but against a **fake** auth repository. Real Supabase sign-in unverified |
 | A2 | ☐ A `profiles` row with role `inspector` is created automatically on signup. | pgTAP: profile exists after `auth.users` insert |
-| A3 | ◐ Sign-out clears the session; the protected screen unmounts and sign-in returns. | Flutter test written — awaiting first CI run |
+| A3 | ◐ Sign-out clears the session; the protected screen unmounts and sign-in returns. | Widget test ✅ run `606017a` proves the routing; real session teardown unverified |
 | A4 | ☑ An unauthenticated client is refused by every application table (raises `42501`; stricter than returning zero rows). | CI run `d53d066` ✅ |
 | A5 | ☑ A user cannot escalate their own role to `admin`, but can still rename themselves. | CI run `d53d066` ✅ |
 
@@ -64,7 +64,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | # | Criterion | Evidence |
 |---|---|---|
 | F1 | ☐ On reconnect, pending drafts push to Supabase and are marked synced. | Flutter integration test |
-| F2 | ◐ Sync is idempotent — running it twice produces no duplicate rows. | pgTAP `050` (DB level) — written, awaiting CI; Flutter level pending |
+| F2 | ◐ Sync is idempotent — running it twice produces no duplicate rows. | pgTAP `050` ✅ run `d53d066` at the database level; no Flutter sync layer exists yet |
 | F3 | ☐ An interrupted sync resumes without data loss or duplication. | Test: fail mid-push, retry, assert consistency |
 | F4 | ☐ Sync failures surface to the user; they are never swallowed. | Test asserting error state is rendered |
 
