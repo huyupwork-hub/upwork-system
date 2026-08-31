@@ -19,7 +19,7 @@ jobs:
   # runs and fails always fails the build, and `detect` prints exactly what was skipped.
   detect:
     name: Detect slices
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     outputs:
       mobile: ${{ steps.check.outputs.mobile }}
       admin: ${{ steps.check.outputs.admin }}
@@ -47,7 +47,7 @@ jobs:
 
   secrets:
     name: Secret hygiene
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
       - name: No committed env files
@@ -71,7 +71,7 @@ jobs:
     name: Database + RLS
     needs: detect
     if: needs.detect.outputs.supabase == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
 
@@ -91,31 +91,25 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
-      - name: Start local Supabase
-        run: supabase start
 
-      # L4 — proves migrations apply from an empty database to head, with no seed data
-      # involved. A migration that only works against a pre-seeded database fails here.
-      - name: Migrations apply cleanly from empty to head
-        run: supabase db reset --no-seed
-
-      # Re-apply with the deterministic fixtures the pgTAP suite asserts against.
-      - name: Reset with seed fixtures
-        run: supabase db reset
-
-      - name: RLS / pgTAP suite
-        run: supabase test db
-
-      # K5 — determinism. Each test file runs in its own transaction and rolls back, so
-      # a repeat run must produce identical results. Ordering dependence shows up here.
-      - name: Suite is repeatable
-        run: supabase test db && supabase test db
+      # Runs the same four gates as before (L4 unseeded migration apply, seeded
+      # re-apply, pgTAP suite, K5 repeat) through the script the service box already
+      # uses, so the database gate has one definition rather than two that can drift.
+      #
+      # Note this brings up Postgres alone. The box cannot run the full service stack
+      # (D11), so GoTrue, Storage, PostgREST, Kong, Studio and Edge Runtime are not
+      # exercised here — the pgTAP suite needs none of them, but anything requiring a
+      # live HTTP endpoint is now unverified by CI as well as locally.
+      - name: Migrations, pgTAP, RLS
+        env:
+          SUPABASE_CMD: supabase
+        run: ./scripts/db-verify.sh
 
   mobile:
     name: Mobile (Flutter)
     needs: detect
     if: needs.detect.outputs.mobile == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
         working-directory: apps/mobile
@@ -208,7 +202,7 @@ jobs:
     name: Admin (Next.js)
     needs: detect
     if: needs.detect.outputs.admin == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
         working-directory: apps/admin
