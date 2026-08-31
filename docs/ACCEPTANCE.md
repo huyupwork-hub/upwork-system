@@ -1,4 +1,4 @@
-| L1 | ☑ Android APK builds in CI and is uploaded as an artifact. | Run `33375863716` ✅ — `app-release.apk` **50.1 MB**, artifact `fieldproof-android-7d1fdf5…` 23,533,380 bytes | K2 | ☑ Flutter unit + widget tests pass — **63 tests**, 0 failures. | CI run `33375863716` ✅ # V1 Acceptance Criteria
+# V1 Acceptance Criteria
 
 V1 is complete when **every** criterion below is satisfied *and* the named evidence exists.
 
@@ -118,7 +118,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | # | Criterion | Evidence |
 |---|---|---|
 | K1 | ☑ `flutter analyze --fatal-infos` reports zero issues. | CI run `606017a` ✅ |
-| K2 | ☑ Flutter unit + widget tests pass — **28 tests**, 0 failures. | CI run `606017a` ✅ |
+| K2 | ☑ Flutter unit + widget tests pass — **63 tests**, 0 failures. | CI run `33375863716` ✅ |
 | K6 | ☑ `dart format --set-exit-if-changed` is clean. | CI run `606017a` ✅ |
 | K3 | ☑ pgTAP suite passes against a clean migration run. | CI run `d53d066` ✅ |
 | K4 | ☐ Admin lint, typecheck, and tests pass. | CI log |
@@ -128,7 +128,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| L1 | ☑ Android APK builds in CI and is uploaded as an artifact. | Run `33358859631` ✅ — `app-release.apk` **49.1 MB**, artifact `fieldproof-android-ec9e5e3…` 23,170,151 bytes |
+| L1 | ☑ Android APK builds in CI and is uploaded as an artifact. | Run `33375863716` ✅ — `app-release.apk` **50.1 MB**, artifact `fieldproof-android-7d1fdf5…` 23,533,380 bytes |
 | L2 | ◐ iOS build verification runs on a macOS runner (no signing required). | **Pending — macOS-only, no execution path.** Passed once on `macos-latest`: run `33351235214`, 1m52s, at `c796b6f`. Not re-verified at HEAD. Moved out of main CI to `.github/workflows/ios.yml`, manual dispatch only (D15) |
 | L3 | ☐ The admin production build succeeds. | CI log |
 | L4 | ☑ Migrations apply cleanly from empty to head. | CI run `d53d066` ✅ |
