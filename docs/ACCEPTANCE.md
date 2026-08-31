@@ -227,3 +227,42 @@ The first fully green run of the main CI workflow, after the iOS split:
 
 Mobile fell from **27m23s to 15m59s** between the two runs with no code change —
 the warm `~/.gradle` on the 126 GB volume, which is the whole argument for D16.
+
+---
+
+## Slice complete — Auth → Create Inspection
+
+**Status: complete.** UI → auth → database → RLS → tests, evidenced end to end
+against a real hosted Supabase project.
+
+| Layer | Evidence |
+|---|---|
+| UI | Cupertino sign-in and New Inspection sheet, matching the approved Figma direction (D14). 28 widget/unit tests |
+| Auth | Hosted smoke assertion 1 — real Supabase Auth, real JWT (A1) |
+| Profile bootstrap | Assertion 2 — `on_auth_user_created` trigger, role `inspector` (A2) |
+| Database | Assertions 3–5 — created via `SupabaseInspectionsRepository`, read back, `inspector_id` re-read from the server (B1) |
+| RLS | pgTAP `010`–`050`, plus assertions 6–8 through the app's own client path (J1–J7) |
+| Tests | 28 hermetic + 8 hosted, all green (K1, K2, K3, K5, K6) |
+| Build | Android APK in CI with artifact (L1); CI green on the default branch (L5) |
+
+**Runs:** full CI `33369532564` (all jobs green) · hosted smoke `33366465489`
+(8/8) · standalone smoke `33369533628` (8/8, no APK rebuild).
+
+### Two sub-criteria deliberately left in progress
+
+Marking the slice complete does not mean every line above is ☑, and these two
+are not:
+
+- **A3** — sign-out routing is proven by widget test, but the hosted smoke calls
+  `signOut()` in teardown without asserting on it, so real session teardown is
+  unverified.
+- **H1 (ordering)** — "only their own" is proven end to end; "newest first" is
+  not. The smoke run creates a single row, so it cannot demonstrate ordering.
+
+Both are honest gaps in an otherwise complete slice, not blockers for the next
+one. Neither is claimed as evidence anywhere.
+
+### Not part of this slice
+
+Photos, PDF, offline drafts, sync, search, and the admin dashboard are later
+slices and remain ☐. iOS verification is pending and macOS-only (L2, D15).
