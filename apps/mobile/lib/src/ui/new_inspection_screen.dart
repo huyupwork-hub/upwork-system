@@ -114,7 +114,8 @@ class _NewInspectionSheetState extends State<NewInspectionSheet> {
     final maxHeight = MediaQuery.of(context).size.height * 0.92;
 
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
         child: Container(

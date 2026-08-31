@@ -67,7 +67,8 @@ void main() {
       expect(find.byType(InspectionsScreen), findsNothing);
     });
 
-    testWidgets('valid credentials reach the inspections screen', (tester) async {
+    testWidgets('valid credentials reach the inspections screen',
+        (tester) async {
       await pumpApp(tester);
       await signIn(tester);
 
@@ -146,7 +147,8 @@ void main() {
       expect(inspections.insertPayloads, isEmpty);
     });
 
-    testWidgets('a valid draft persists and appears in the list', (tester) async {
+    testWidgets('a valid draft persists and appears in the list',
+        (tester) async {
       await pumpApp(tester);
       await signIn(tester);
       await openSheet(tester);

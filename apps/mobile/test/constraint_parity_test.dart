@@ -12,7 +12,8 @@ void main() {
   late String sql;
 
   setUpAll(() {
-    final file = File('${_repoRoot()}/supabase/migrations/20260831000100_schema.sql');
+    final file =
+        File('${_repoRoot()}/supabase/migrations/20260831000100_schema.sql');
     expect(
       file.existsSync(),
       isTrue,
@@ -23,7 +24,8 @@ void main() {
 
   int upperBound(RegExp pattern, String label) {
     final match = pattern.firstMatch(sql);
-    expect(match, isNotNull, reason: 'no $label constraint found in the migration');
+    expect(match, isNotNull,
+        reason: 'no $label constraint found in the migration');
     return int.parse(match!.group(1)!);
   }
 
@@ -75,7 +77,8 @@ void main() {
 String _repoRoot() {
   var dir = Directory.current;
   for (var i = 0; i < 6; i++) {
-    if (Directory('${dir.path}/supabase/migrations').existsSync()) return dir.path;
+    if (Directory('${dir.path}/supabase/migrations').existsSync())
+      return dir.path;
     final parent = dir.parent;
     if (parent.path == dir.path) break;
     dir = parent;

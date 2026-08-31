@@ -250,7 +250,8 @@ class FormRow extends StatelessWidget {
         ),
         if (errorText != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(AppMetrics.gutter, 0, AppMetrics.gutter, 8),
+            padding: const EdgeInsets.fromLTRB(
+                AppMetrics.gutter, 0, AppMetrics.gutter, 8),
             child: Text(
               errorText!,
               textAlign: TextAlign.right,

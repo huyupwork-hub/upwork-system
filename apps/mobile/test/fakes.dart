@@ -57,12 +57,14 @@ class FakeProfileRepository implements ProfileRepository {
   Future<Profile> loadCurrent() async {
     if (throwMissing) throw const ProfileMissingException('user-1');
     return profile ??
-        const Profile(id: 'user-1', fullName: 'Inspector Alpha', role: 'inspector');
+        const Profile(
+            id: 'user-1', fullName: 'Inspector Alpha', role: 'inspector');
   }
 }
 
 class FakeInspectionsRepository implements InspectionsRepository {
-  FakeInspectionsRepository({List<Inspection>? initial, this.sessionUserId = 'user-1'})
+  FakeInspectionsRepository(
+      {List<Inspection>? initial, this.sessionUserId = 'user-1'})
       : rows = [...?initial];
 
   final List<Inspection> rows;

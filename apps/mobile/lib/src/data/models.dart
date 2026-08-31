@@ -14,7 +14,8 @@ enum InspectionStatus {
   static InspectionStatus fromWire(String value) => switch (value) {
         'draft' => InspectionStatus.draft,
         'submitted' => InspectionStatus.submitted,
-        _ => throw ArgumentError.value(value, 'status', 'unknown inspection status'),
+        _ => throw ArgumentError.value(
+            value, 'status', 'unknown inspection status'),
       };
 
   String get wire => name;
@@ -113,8 +114,7 @@ class NewInspection {
   }
 
   /// `inspection_date` is a Postgres `date`, so send a date, not a timestamp.
-  static String dateOnly(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
+  static String dateOnly(DateTime d) => '${d.year.toString().padLeft(4, '0')}-'
       '${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
 }

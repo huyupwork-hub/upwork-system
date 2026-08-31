@@ -2,7 +2,8 @@ import 'package:fieldproof/src/data/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  NewInspection draft({String site = 'Harbour View', String? address, String? client}) =>
+  NewInspection draft(
+          {String site = 'Harbour View', String? address, String? client}) =>
       NewInspection(
         siteName: site,
         siteAddress: address,
@@ -27,11 +28,13 @@ void main() {
       isNull,
     );
     expect(
-      InspectionLimits.validateSiteName('x' * (InspectionLimits.siteNameMax + 1)),
+      InspectionLimits.validateSiteName(
+          'x' * (InspectionLimits.siteNameMax + 1)),
       isNotNull,
     );
     expect(
-      InspectionLimits.validateSiteAddress('x' * InspectionLimits.siteAddressMax),
+      InspectionLimits.validateSiteAddress(
+          'x' * InspectionLimits.siteAddressMax),
       isNull,
     );
     expect(
@@ -48,7 +51,8 @@ void main() {
 
   test('a well-formed draft validates', () {
     expect(
-      InspectionLimits.isValid(draft(address: '12 Dock Road', client: 'Meridian')),
+      InspectionLimits.isValid(
+          draft(address: '12 Dock Road', client: 'Meridian')),
       isTrue,
     );
   });
