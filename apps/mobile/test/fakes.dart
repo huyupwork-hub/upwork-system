@@ -206,9 +206,13 @@ class FakeInspectionItemsRepository implements InspectionItemsRepository {
 
 /// A capture source that never touches a platform channel.
 class FakePhotoSource implements PhotoSource {
-  FakePhotoSource({this.next, this.failWith});
+  FakePhotoSource({this.failWith});
 
   /// What the next pick returns. Null models the user cancelling.
+  ///
+  /// Deliberately not a constructor parameter: `{this.next}` would override this
+  /// initializer with null whenever the argument was omitted, so the default
+  /// source would silently behave as a cancelled picker.
   CapturedPhoto? next = const CapturedPhoto(
     bytes: [1, 2, 3, 4],
     contentType: 'image/jpeg',
