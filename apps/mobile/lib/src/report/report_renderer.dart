@@ -54,7 +54,8 @@ class PdfReportRenderer implements ReportRenderer {
           pw.SizedBox(height: 22),
           pw.Text(
             'Punch list',
-            style: const pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            style: const pw.TextStyle(
+                fontSize: 14, fontWeight: pw.FontWeight.bold),
           ),
           pw.SizedBox(height: 8),
           if (snapshot.items.isEmpty)
@@ -100,7 +101,8 @@ class PdfReportRenderer implements ReportRenderer {
           pw.SizedBox(height: 14),
           pw.Text(
             s.inspection.siteName,
-            style: const pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+            style: const pw.TextStyle(
+                fontSize: 18, fontWeight: pw.FontWeight.bold),
           ),
         ],
       );
@@ -161,7 +163,8 @@ class PdfReportRenderer implements ReportRenderer {
         children: [
           pw.Text(
             'Summary',
-            style: const pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+            style: const pw.TextStyle(
+                fontSize: 11, fontWeight: pw.FontWeight.bold),
           ),
           pw.SizedBox(height: 6),
           pw.Row(
@@ -197,7 +200,8 @@ class PdfReportRenderer implements ReportRenderer {
           children: [
             pw.Text(
               value,
-              style: const pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold),
+              style: const pw.TextStyle(
+                  fontSize: 15, fontWeight: pw.FontWeight.bold),
             ),
             pw.Text(label,
                 style: const pw.TextStyle(fontSize: 9, color: _muted)),
