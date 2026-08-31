@@ -109,7 +109,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                 ),
               ],
             ),
-            if (!_isEditable) _readOnlyNotice(),
+            if (!_isEditable) _readOnlyNotice,
             const SectionHeader(label: 'Punch list'),
             _items(),
             const SizedBox(height: 32),
@@ -121,30 +121,30 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
 
   /// Says why the screen is inert, rather than leaving the user to discover it
   /// by tapping things that do nothing.
-  Widget _readOnlyNotice() => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 1, right: 6),
-              child: Icon(
-                CupertinoIcons.lock_fill,
-                size: 13,
-                color: AppColors.label2,
-              ),
-            ),
-            const Expanded(
-              child: Text(
-                'Submitted — this inspection is a permanent record and can no '
-                'longer be changed.',
-                key: Key('read-only-notice'),
-                style: TextStyle(fontSize: 13, color: AppColors.label2),
-              ),
-            ),
-          ],
+  static const Widget _readOnlyNotice = Padding(
+    padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(top: 1, right: 6),
+          child: Icon(
+            CupertinoIcons.lock_fill,
+            size: 13,
+            color: AppColors.label2,
+          ),
         ),
-      );
+        Expanded(
+          child: Text(
+            'Submitted — this inspection is a permanent record and can no '
+            'longer be changed.',
+            key: Key('read-only-notice'),
+            style: TextStyle(fontSize: 13, color: AppColors.label2),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _items() {
     if (_error != null) {

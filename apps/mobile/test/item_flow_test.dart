@@ -189,7 +189,7 @@ void main() {
         ..clear()
         ..add(submitted);
       items.rows.add(
-        InspectionItem(
+        const InspectionItem(
           id: 'item-x',
           inspectionId: 'insp-2',
           sortOrder: 0,
