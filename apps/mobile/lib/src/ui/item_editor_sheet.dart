@@ -78,11 +78,11 @@ class _ItemEditorSheetState extends State<ItemEditorSheet> {
   }
 
   NewInspectionItem get _draft => NewInspectionItem(
-    title: _title.text,
-    description: _description.text,
-    area: _area.text,
-    severity: _severity,
-  );
+        title: _title.text,
+        description: _description.text,
+        area: _area.text,
+        severity: _severity,
+      );
 
   Future<void> _save() async {
     if (_busy) return;
@@ -156,7 +156,8 @@ class _ItemEditorSheetState extends State<ItemEditorSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
         child: Container(
@@ -257,89 +258,90 @@ class _ItemEditorSheetState extends State<ItemEditorSheet> {
   }
 
   Widget _grabHandle() => Padding(
-    padding: const EdgeInsets.only(top: 8),
-    child: Container(
-      width: 36,
-      height: 5,
-      decoration: BoxDecoration(
-        color: AppColors.label3,
-        borderRadius: BorderRadius.circular(3),
-      ),
-    ),
-  );
+        padding: const EdgeInsets.only(top: 8),
+        child: Container(
+          width: 36,
+          height: 5,
+          decoration: BoxDecoration(
+            color: AppColors.label3,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+      );
 
   Widget _header() => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-    child: Row(
-      children: [
-        CupertinoButton(
-          padding: EdgeInsets.zero,
-          minimumSize: Size.zero,
-          onPressed: _busy ? null : () => Navigator.of(context).pop(false),
-          child: const Text(
-            'Cancel',
-            style: TextStyle(fontSize: 17, color: AppColors.blue),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            widget.isEditing ? 'Edit Item' : 'New Item',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-          ),
-        ),
-        // Balances the Cancel button so the title stays centred.
-        const SizedBox(width: 60),
-      ],
-    ),
-  );
-
-  Widget _severityPicker() => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: AppMetrics.gutter),
-    child: CupertinoSlidingSegmentedControl<ItemSeverity>(
-      groupValue: _severity,
-      onValueChanged: (v) {
-        if (v != null) setState(() => _severity = v);
-      },
-      children: {
-        for (final s in ItemSeverity.values)
-          s: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Text(
-              s.label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: SeverityPalette.foreground(s),
-              ),
-            ),
-          ),
-      },
-    ),
-  );
-
-  Widget _statusRow() => InsetCard(
-    children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppMetrics.gutter,
-          vertical: 10,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            const Expanded(
-              child: Text('Resolved', style: TextStyle(fontSize: 17)),
-            ),
-            CupertinoSwitch(
-              key: const Key('item-resolved-switch'),
-              value: _status.isResolved,
-              onChanged: (v) => setState(
-                () => _status = v ? ItemStatus.resolved : ItemStatus.open,
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              onPressed: _busy ? null : () => Navigator.of(context).pop(false),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(fontSize: 17, color: AppColors.blue),
               ),
             ),
+            Expanded(
+              child: Text(
+                widget.isEditing ? 'Edit Item' : 'New Item',
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+              ),
+            ),
+            // Balances the Cancel button so the title stays centred.
+            const SizedBox(width: 60),
           ],
         ),
-      ),
-    ],
-  );
+      );
+
+  Widget _severityPicker() => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppMetrics.gutter),
+        child: CupertinoSlidingSegmentedControl<ItemSeverity>(
+          groupValue: _severity,
+          onValueChanged: (v) {
+            if (v != null) setState(() => _severity = v);
+          },
+          children: {
+            for (final s in ItemSeverity.values)
+              s: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  s.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: SeverityPalette.foreground(s),
+                  ),
+                ),
+              ),
+          },
+        ),
+      );
+
+  Widget _statusRow() => InsetCard(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppMetrics.gutter,
+              vertical: 10,
+            ),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text('Resolved', style: TextStyle(fontSize: 17)),
+                ),
+                CupertinoSwitch(
+                  key: const Key('item-resolved-switch'),
+                  value: _status.isResolved,
+                  onChanged: (v) => setState(
+                    () => _status = v ? ItemStatus.resolved : ItemStatus.open,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
 }

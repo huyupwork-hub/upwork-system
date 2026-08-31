@@ -304,10 +304,8 @@ void main() {
     final visible = await itemsB.listFor(created!.id);
     expect(visible, isEmpty, reason: 'B cannot list items under A inspection');
 
-    final byId = await clientB
-        .from('inspection_items')
-        .select('id')
-        .eq('id', item!.id);
+    final byId =
+        await clientB.from('inspection_items').select('id').eq('id', item!.id);
     expect(byId, isEmpty, reason: 'nor read it by direct id');
 
     // The repository turns a silent zero-row denial into an exception rather

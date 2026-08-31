@@ -110,7 +110,8 @@ void main() {
       await openEditor(tester);
 
       for (final label in ['Low', 'Medium', 'High', 'Critical']) {
-        expect(find.text(label), findsWidgets, reason: '$label must be offered');
+        expect(find.text(label), findsWidgets,
+            reason: '$label must be offered');
       }
       expect(find.text('Minor'), findsNothing);
       expect(find.text('Major'), findsNothing);
@@ -241,7 +242,8 @@ void main() {
 
       await tester.tap(find.byKey(const Key('delete-item-button')));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(CupertinoActionSheetAction, 'Delete'));
+      await tester
+          .tap(find.widgetWithText(CupertinoActionSheetAction, 'Delete'));
       await tester.pumpAndSettle();
 
       expect(items.deleted, hasLength(1));
@@ -257,7 +259,8 @@ void main() {
 
       await tester.tap(find.byKey(const Key('delete-item-button')));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(CupertinoActionSheetAction, 'Cancel'));
+      await tester
+          .tap(find.widgetWithText(CupertinoActionSheetAction, 'Cancel'));
       await tester.pumpAndSettle();
 
       expect(items.deleted, isEmpty);

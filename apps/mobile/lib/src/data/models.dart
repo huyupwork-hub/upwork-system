@@ -173,21 +173,22 @@ enum ItemSeverity {
   critical;
 
   static ItemSeverity fromWire(String value) => switch (value) {
-    'low' => ItemSeverity.low,
-    'medium' => ItemSeverity.medium,
-    'high' => ItemSeverity.high,
-    'critical' => ItemSeverity.critical,
-    _ => throw ArgumentError.value(value, 'severity', 'unknown item severity'),
-  };
+        'low' => ItemSeverity.low,
+        'medium' => ItemSeverity.medium,
+        'high' => ItemSeverity.high,
+        'critical' => ItemSeverity.critical,
+        _ =>
+          throw ArgumentError.value(value, 'severity', 'unknown item severity'),
+      };
 
   String get wire => name;
 
   String get label => switch (this) {
-    ItemSeverity.low => 'Low',
-    ItemSeverity.medium => 'Medium',
-    ItemSeverity.high => 'High',
-    ItemSeverity.critical => 'Critical',
-  };
+        ItemSeverity.low => 'Low',
+        ItemSeverity.medium => 'Medium',
+        ItemSeverity.high => 'High',
+        ItemSeverity.critical => 'Critical',
+      };
 }
 
 /// Punch status as the accepted schema defines it (`item_status`).
@@ -200,10 +201,10 @@ enum ItemStatus {
   resolved;
 
   static ItemStatus fromWire(String value) => switch (value) {
-    'open' => ItemStatus.open,
-    'resolved' => ItemStatus.resolved,
-    _ => throw ArgumentError.value(value, 'status', 'unknown item status'),
-  };
+        'open' => ItemStatus.open,
+        'resolved' => ItemStatus.resolved,
+        _ => throw ArgumentError.value(value, 'status', 'unknown item status'),
+      };
 
   String get wire => name;
 
@@ -234,18 +235,18 @@ class InspectionItem {
   final DateTime? createdAt;
 
   factory InspectionItem.fromRow(Map<String, dynamic> row) => InspectionItem(
-    id: row['id'] as String,
-    inspectionId: row['inspection_id'] as String,
-    sortOrder: row['sort_order'] as int,
-    title: row['title'] as String,
-    description: row['description'] as String?,
-    area: row['area'] as String?,
-    severity: ItemSeverity.fromWire(row['severity'] as String),
-    status: ItemStatus.fromWire(row['status'] as String),
-    createdAt: row['created_at'] == null
-        ? null
-        : DateTime.parse(row['created_at'] as String),
-  );
+        id: row['id'] as String,
+        inspectionId: row['inspection_id'] as String,
+        sortOrder: row['sort_order'] as int,
+        title: row['title'] as String,
+        description: row['description'] as String?,
+        area: row['area'] as String?,
+        severity: ItemSeverity.fromWire(row['severity'] as String),
+        status: ItemStatus.fromWire(row['status'] as String),
+        createdAt: row['created_at'] == null
+            ? null
+            : DateTime.parse(row['created_at'] as String),
+      );
 }
 
 /// A not-yet-persisted punch item.
@@ -273,14 +274,15 @@ class NewInspectionItem {
   Map<String, dynamic> toInsert({
     required String inspectionId,
     required int sortOrder,
-  }) => {
-    'inspection_id': inspectionId,
-    'sort_order': sortOrder,
-    'title': title.trim(),
-    'description': nullIfBlank(description),
-    'area': nullIfBlank(area),
-    'severity': severity.wire,
-  };
+  }) =>
+      {
+        'inspection_id': inspectionId,
+        'sort_order': sortOrder,
+        'title': title.trim(),
+        'description': nullIfBlank(description),
+        'area': nullIfBlank(area),
+        'severity': severity.wire,
+      };
 
   /// Public because updates apply the same blank-to-null rule as inserts.
   static String? nullIfBlank(String? v) {

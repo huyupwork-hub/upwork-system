@@ -108,7 +108,7 @@ class FakeInspectionsRepository implements InspectionsRepository {
 /// pgTAP (`020`, `060`) and by the hosted smoke test against real policies.
 class FakeInspectionItemsRepository implements InspectionItemsRepository {
   FakeInspectionItemsRepository({List<InspectionItem>? initial})
-    : rows = [...?initial];
+      : rows = [...?initial];
 
   final List<InspectionItem> rows;
 

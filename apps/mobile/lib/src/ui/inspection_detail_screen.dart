@@ -148,8 +148,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
 
     return InsetCard(
       children: [
-        for (final row in rows)
-          _ItemRow(item: row, onTap: () => _edit(row)),
+        for (final row in rows) _ItemRow(item: row, onTap: () => _edit(row)),
       ],
     );
   }

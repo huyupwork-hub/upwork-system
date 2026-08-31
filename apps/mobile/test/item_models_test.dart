@@ -82,17 +82,18 @@ void main() {
     Map<String, dynamic> row({
       String severity = 'medium',
       String status = 'open',
-    }) => {
-      'id': 'it1',
-      'inspection_id': 'insp1',
-      'sort_order': 2,
-      'title': 'Exposed wiring',
-      'description': null,
-      'area': 'Plant room',
-      'severity': severity,
-      'status': status,
-      'created_at': '2026-08-20T10:00:00Z',
-    };
+    }) =>
+        {
+          'id': 'it1',
+          'inspection_id': 'insp1',
+          'sort_order': 2,
+          'title': 'Exposed wiring',
+          'description': null,
+          'area': 'Plant room',
+          'severity': severity,
+          'status': status,
+          'created_at': '2026-08-20T10:00:00Z',
+        };
 
     test('parses an open item', () {
       final item = InspectionItem.fromRow(row());

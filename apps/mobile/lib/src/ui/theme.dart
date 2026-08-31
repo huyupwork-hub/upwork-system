@@ -361,19 +361,19 @@ class SeverityPalette {
   const SeverityPalette._();
 
   static Color foreground(ItemSeverity s) => switch (s) {
-    ItemSeverity.low => AppColors.green,
-    ItemSeverity.medium => const Color(0xFFB58900),
-    ItemSeverity.high => const Color(0xFFFF9500),
-    ItemSeverity.critical => AppColors.red,
-  };
+        ItemSeverity.low => AppColors.green,
+        ItemSeverity.medium => const Color(0xFFB58900),
+        ItemSeverity.high => const Color(0xFFFF9500),
+        ItemSeverity.critical => AppColors.red,
+      };
 
   /// ~15% of the foreground, for the chip background.
   static Color tint(ItemSeverity s) => switch (s) {
-    ItemSeverity.low => const Color(0x2634C759),
-    ItemSeverity.medium => const Color(0x26FFCC00),
-    ItemSeverity.high => const Color(0x26FF9500),
-    ItemSeverity.critical => const Color(0x26FF3B30),
-  };
+        ItemSeverity.low => const Color(0x2634C759),
+        ItemSeverity.medium => const Color(0x26FFCC00),
+        ItemSeverity.high => const Color(0x26FF9500),
+        ItemSeverity.critical => const Color(0x26FF3B30),
+      };
 }
 
 /// A severity chip: colour plus the word, never colour alone. Severity is the

@@ -205,7 +205,8 @@ class _InspectionRow extends StatelessWidget {
                 children: [
                   Text(
                     inspection.siteName,
-                    style: const TextStyle(fontSize: 17, color: AppColors.label),
+                    style:
+                        const TextStyle(fontSize: 17, color: AppColors.label),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),

@@ -102,7 +102,8 @@ void main() {
       declared('item_severity'),
       ItemSeverity.values.map((v) => v.wire).toSet(),
     );
-    expect(declared('item_status'), ItemStatus.values.map((v) => v.wire).toSet());
+    expect(
+        declared('item_status'), ItemStatus.values.map((v) => v.wire).toSet());
   });
 
   test('the enum the client models matches the one the schema declares', () {

@@ -140,7 +140,8 @@ class SupabaseInspectionItemsRepository implements InspectionItemsRepository {
 
     final row = await _client
         .from('inspection_items')
-        .insert(draft.toInsert(inspectionId: inspectionId, sortOrder: nextOrder))
+        .insert(
+            draft.toInsert(inspectionId: inspectionId, sortOrder: nextOrder))
         .select(_columns)
         .single();
 
