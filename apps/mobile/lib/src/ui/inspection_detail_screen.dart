@@ -5,7 +5,6 @@ import 'package:flutter/cupertino.dart';
 import '../data/models.dart';
 import '../data/repositories.dart';
 import 'item_editor_sheet.dart';
-import 'photo_strip.dart';
 import 'theme.dart';
 
 /// One inspection and its punch list.

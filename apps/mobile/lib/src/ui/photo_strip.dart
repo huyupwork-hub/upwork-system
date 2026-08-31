@@ -215,7 +215,7 @@ class _Thumb extends StatelessWidget {
               return Image.network(
                 snap.data!,
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const _ThumbPlaceholder(),
+                errorBuilder: (context, error, stack) => const _ThumbPlaceholder(),
               );
             },
           ),
@@ -375,7 +375,7 @@ class _PhotoViewerState extends State<PhotoViewer> {
                     child: Image.network(
                       snap.data!,
                       fit: BoxFit.contain,
-                      errorBuilder: (_, _, _) => const Center(
+                      errorBuilder: (context, error, stack) => const Center(
                         child: Icon(
                           CupertinoIcons.photo,
                           size: 48,

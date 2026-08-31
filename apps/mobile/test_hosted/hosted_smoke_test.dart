@@ -391,7 +391,7 @@ void main() {
     final url = await photosA.signedUrl(photo!);
     expect(url, contains(photo!.storagePath.split('/').last));
 
-    final signed = await http_get(url);
+    final signed = await httpGet(url);
     expect(signed.statusCode, 200, reason: 'the signed URL must resolve');
     expect(signed.bodyBytes.length, _tinyPng.length);
   });
@@ -401,7 +401,7 @@ void main() {
     final url = clientA.storage
         .from(SupabaseObjectStore.bucket)
         .getPublicUrl(photo!.storagePath);
-    final res = await http_get(url);
+    final res = await httpGet(url);
     expect(res.statusCode, isNot(200),
         reason: 'a public URL must not serve a private object');
   });
@@ -450,7 +450,7 @@ void main() {
     expect(rows, isEmpty, reason: 'metadata is gone');
 
     // And the object with it: a signed URL for a deleted object must not serve.
-    final res = await http_get(
+    final res = await httpGet(
       clientA.storage
           .from(SupabaseObjectStore.bucket)
           .getPublicUrl(photo!.storagePath),
@@ -508,7 +508,7 @@ const List<int> _tinyPng = [
 
 /// A plain GET, so the test can check what a private object does and does not
 /// serve. Uses dart:io directly rather than adding an http dependency.
-Future<({int statusCode, List<int> bodyBytes})> http_get(String url) async {
+Future<({int statusCode, List<int> bodyBytes})> httpGet(String url) async {
   final client = HttpClient();
   try {
     final req = await client.getUrl(Uri.parse(url));

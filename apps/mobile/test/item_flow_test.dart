@@ -220,6 +220,8 @@ void main() {
           profiles: profiles,
           inspections: inspections,
           items: items,
+          photos: photos,
+          source: source,
         ),
       );
       await tester.pumpAndSettle();
