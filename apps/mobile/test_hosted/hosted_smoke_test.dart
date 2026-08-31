@@ -149,7 +149,8 @@ void main() {
     expect(profile.id, userAId);
     expect(profile.fullName, isNotEmpty);
     expect(profile.role, 'inspector',
-        reason: 'a smoke user must not be an admin; D3 changes what it can see');
+        reason:
+            'a smoke user must not be an admin; D3 changes what it can see');
   });
 
   test('3. user A creates a draft through the app repository path', () async {
@@ -189,10 +190,8 @@ void main() {
   });
 
   test('6. user B cannot read user A draft', () async {
-    final byId = await clientB
-        .from('inspections')
-        .select('id')
-        .eq('id', created!.id);
+    final byId =
+        await clientB.from('inspections').select('id').eq('id', created!.id);
     expect(byId, isEmpty, reason: 'RLS must hide it even when named directly');
 
     final bList = await inspectionsB.listMine();
