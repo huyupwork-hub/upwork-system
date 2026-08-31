@@ -16,21 +16,21 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| A1 | ☐ A new user can sign up and sign in with email + password. | Flutter integration test |
+| A1 | ◐ An existing user signs in with email + password. **Sign-up is out of V1 scope (D13)** — accounts come from the dashboard or seed. | Flutter test written — awaiting first CI run |
 | A2 | ☐ A `profiles` row with role `inspector` is created automatically on signup. | pgTAP: profile exists after `auth.users` insert |
-| A3 | ☐ Sign-out clears the local session; protected screens are unreachable afterwards. | Flutter widget test |
-| A4 | ◐ An unauthenticated client is refused by every application table (raises `42501`; stricter than returning zero rows). | pgTAP `040` — written, awaiting CI |
-| A5 | ◐ A user cannot escalate their own role to `admin`, but can still rename themselves. | pgTAP `040` — written, awaiting CI |
+| A3 | ◐ Sign-out clears the session; the protected screen unmounts and sign-in returns. | Flutter test written — awaiting first CI run |
+| A4 | ☑ An unauthenticated client is refused by every application table (raises `42501`; stricter than returning zero rows). | CI run `d53d066` ✅ |
+| A5 | ☑ A user cannot escalate their own role to `admin`, but can still rename themselves. | CI run `d53d066` ✅ |
 
 ## B. Inspection CRUD
 
 | # | Criterion | Evidence |
 |---|---|---|
-| B1 | ☐ An inspector creates an inspection with site name, address, client, and date. | Flutter test + row in DB |
-| B2 | ☐ Required-field and length constraints reject invalid input at the database, not only in the UI. | pgTAP CHECK-constraint tests |
+| B1 | ◐ An inspector creates an inspection with site name, address, client, and date. | Widget test vs. a **fake** repository — true end-to-end needs a live Supabase project |
+| B2 | ☑ Required-field and length constraints reject invalid input at the database, not only in the UI. | CI run `d53d066` ✅ |
 | B3 | ☐ An inspector can edit and delete their own inspection. | Flutter test |
-| B4 | ◐ Deleting an inspection cascades to its items and photo rows. | pgTAP `050` — written, awaiting CI |
-| B5 | ◐ A submitted inspection cannot be returned to draft (D10), and `submitted_at` is stamped automatically. | pgTAP `050` — written, awaiting CI |
+| B4 | ☑ Deleting an inspection cascades to its items and photo rows. | CI run `d53d066` ✅ |
+| B5 | ☑ A submitted inspection cannot be returned to draft (D10), and `submitted_at` is stamped automatically. | CI run `d53d066` ✅ |
 
 ## C. Punch-list items
 
@@ -38,7 +38,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 |---|---|---|
 | C1 | ☐ Items can be added, edited, and deleted within an inspection. | Flutter test |
 | C2 | ☐ Items can be reordered, and the order survives a reload. | Flutter test asserting `position` round-trip |
-| C3 | ☐ Severity and status are constrained to their enums. | pgTAP |
+| C3 | ☑ Severity and status are constrained to their enums. | CI run `d53d066` ✅ |
 
 ## D. Photos
 
@@ -82,7 +82,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| H1 | ☐ An inspector sees only their own inspections, newest first. | Flutter test + pgTAP isolation test |
+| H1 | ◐ An inspector sees only their own inspections, newest first. | Ordering: widget test. Isolation: pgTAP `020` ✅ |
 | H2 | ☐ Search matches on site name, address, and client. | Test over the GIN index |
 | H3 | ☐ Search returns no other inspector's rows. | pgTAP |
 
@@ -93,20 +93,20 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | I1 | ☐ An admin signs in and lists all **submitted** inspections. | Admin test |
 | I2 | ☐ An admin opens a submitted inspection and sees its items and photos. | Admin test |
 | I3 | ☐ A non-admin signing into the dashboard sees no inspections but their own. | Admin test |
-| I6 | ◐ An admin cannot read a `draft` inspection, its items, its photos, or its storage objects — including by direct id. | pgTAP `030` — written, awaiting CI |
-| I7 | ◐ An admin cannot read the profile of an inspector who has only drafts. | pgTAP `030` — written, awaiting CI |
-| I4 | ◐ Every admin write attempt is rejected by the database, including creating an inspection of their own. | pgTAP `030` — written, awaiting CI |
+| I6 | ☑ An admin cannot read a `draft` inspection, its items, its photos, or its storage objects — including by direct id. | CI run `d53d066` ✅ |
+| I7 | ☑ An admin cannot read the profile of an inspector who has only drafts. | CI run `d53d066` ✅ |
+| I4 | ☑ Every admin write attempt is rejected by the database, including creating an inspection of their own. | CI run `d53d066` ✅ |
 | I5 | ☐ The service-role key appears in no client bundle. | Grep over `.next` build output — asserted in CI |
 
 ## J. Security / RLS
 
 | # | Criterion | Evidence |
 |---|---|---|
-| J1 | ◐ RLS is enabled **and forced** on all four application tables. | pgTAP `010` — written, awaiting CI |
-| J2 | ◐ Every cell of the `DATA_MODEL.md` §5 matrix has a passing test. | pgTAP suite; mapping in `DATA_MODEL.md` §9 |
-| J3 | ◐ Inspector A cannot read or mutate inspector B's data at any level of the chain — both the raising and the silent-denial shapes. | pgTAP `020` — written, awaiting CI |
-| J4 | ◐ No policy grants unrestricted `authenticated` CRUD (no bare `true` qualifier). | pgTAP `010` — written, awaiting CI |
-| J5 | ☐ No secret is committed. | CI secret scan |
+| J1 | ☑ RLS is enabled **and forced** on all four application tables. | CI run `d53d066` ✅ |
+| J2 | ☑ Every cell of the `DATA_MODEL.md` §5 matrix has a passing test. | CI run `d53d066` ✅ |
+| J3 | ☑ Inspector A cannot read or mutate inspector B's data at any level of the chain — both the raising and the silent-denial shapes. | CI run `d53d066` ✅ |
+| J4 | ☑ No policy grants unrestricted `authenticated` CRUD (no bare `true` qualifier). | CI run `d53d066` ✅ |
+| J5 | ☑ No secret is committed. | CI run `d53d066` ✅ |
 
 ## K. Tests
 
@@ -114,9 +114,9 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 |---|---|---|
 | K1 | ☐ `flutter analyze` reports zero issues. | CI log |
 | K2 | ☐ Flutter unit + widget tests pass. | CI log |
-| K3 | ☐ pgTAP suite passes against a clean migration run. | CI log |
+| K3 | ☑ pgTAP suite passes against a clean migration run. | CI run `d53d066` ✅ |
 | K4 | ☐ Admin lint, typecheck, and tests pass. | CI log |
-| K5 | ☐ Tests are deterministic — no ordering dependence, no wall-clock flake. | Suite passes 3× consecutively in CI |
+| K5 | ☑ Tests are deterministic — no ordering dependence, no wall-clock flake. | CI run `d53d066` ✅ |
 
 ## L. Builds and release evidence
 
@@ -125,7 +125,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | L1 | ☐ Android APK builds in CI and is uploaded as an artifact. | Actions artifact |
 | L2 | ☐ iOS build verification runs on a macOS runner (no signing required). | CI log — *feasibility caveat below* |
 | L3 | ☐ The admin production build succeeds. | CI log |
-| L4 | ☐ Migrations apply cleanly from empty to head. | CI log |
+| L4 | ☑ Migrations apply cleanly from empty to head. | CI run `d53d066` ✅ |
 | L5 | ☐ CI is green on the default branch. | Actions run URL |
 
 ## M. Portfolio evidence
@@ -147,3 +147,26 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
   than quietly dropped.
 - **A1/D1/E1/F1 (integration tests):** these need a live Supabase project (D2). Until one
   exists, they cannot be claimed.
+
+---
+
+## Slice status — Auth → Create Inspection
+
+**Verified (CI `d53d066`, green):** the 17 ☑ criteria above. All are database-level:
+migrations, RLS, constraints, admin scoping, determinism, secret hygiene.
+
+**Written but unverified (◐):** every Flutter criterion. `apps/mobile` has not yet been
+through CI — this slice is the first commit containing it, so `flutter analyze`,
+`flutter test` and the APK build have never run. No Flutter toolchain exists on the
+development machine (D1), so none of it could be run locally either.
+
+**Two limits worth stating plainly:**
+
+1. The Flutter tests exercise the client contract against in-memory fakes. They prove the
+   app sends the right payload, surfaces errors instead of swallowing them, and never lets
+   a caller name the owner. They prove **nothing** about RLS — that is what the pgTAP suite
+   is for, and the fakes deliberately do not re-implement policy checks, because a fake
+   that enforced RLS would be testing itself.
+2. No live Supabase project is configured, so the authenticated round trip
+   (sign in → insert → read back) has never executed against a real database. B1 and the
+   A-series cannot be claimed until it has.

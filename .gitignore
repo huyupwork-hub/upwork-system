@@ -28,3 +28,13 @@ apps/mobile/android/local.properties
 # Supabase local stack
 supabase/.branches/
 supabase/.temp/
+
+# Flutter platform scaffolding — generated in CI (docs/DECISIONS.md D12)
+apps/mobile/android/
+apps/mobile/ios/
+apps/mobile/.flutter-plugins*
+apps/mobile/coverage/
+
+# Xcode.app was extracted into this directory by accident (12 GB). Ignored so it
+# can never be staged; it should be moved out of the repo entirely.
+/Xcode.app/

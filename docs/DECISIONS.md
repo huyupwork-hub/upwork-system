@@ -122,3 +122,57 @@ issuance, signed URLs, the Data API — can be exercised there. Those stay CI-on
 unchanged: CI remains authoritative.
 **Reversal:** if Realtime ever enters scope, set the flag to `true` and drop the CI guard.
 The service box would then need different hardware, not a different config.
+
+### D12 — Flutter platform scaffolding is generated in CI, not committed — *Accepted*
+`apps/mobile` commits Dart source only: `pubspec.yaml`, `analysis_options.yaml`, `lib/`,
+`test/`. The `android/` and `ios/` directories are produced by
+`flutter create --platforms=… .` as a CI step before the build.
+**Why:** no Flutter toolchain exists on the development machine (D1), so `flutter create`
+could not be run to produce them. Hand-writing the Android scaffolding would mean
+committing a binary `gradle-wrapper.jar` written blind — worse than regenerating a
+template the Flutter tool owns anyway.
+**Consequence:** the CI step restores `lib/ test/ pubspec.yaml analysis_options.yaml` from
+git immediately after `flutter create`, because the template rewrites files it considers
+its own. It also injects `android.permission.INTERNET` into the *main* manifest: the
+Flutter template grants it only in the debug and profile manifests, so a release APK would
+otherwise ship with no network and every Supabase call would fail.
+**Reversal:** once Flutter is installed locally, run `flutter create --platforms=android,ios .`
+once, commit the result, and delete the two CI scaffolding steps. Nothing else changes.
+
+### D13 — V1 has sign-in only, no in-app sign-up — *Accepted*
+The app authenticates existing users. Accounts are created in the Supabase dashboard or by
+seed.
+**Why:** the Definition of Done begins at `login`, not `register`. Adding a sign-up form
+means email confirmation, password policy and a full-name capture step — none of which the
+stated V1 workflow requires.
+**Profile bootstrap:** no client-side creation path exists or is needed. The
+`on_auth_user_created` trigger creates the `profiles` row, and the app *reads* it after
+sign-in. If it is missing, `ProfileMissingException` surfaces to the user rather than the
+app inventing a profile — a missing row means the schema bootstrap failed and must be
+visible, not patched over at runtime.
+
+### D14 — The Figma Make file is visual direction; the schema is the contract — *Accepted*
+Where the mockup (`figma.com/make/JPL6m3DdiYxMRljlM67SiD`) and the accepted
+SPEC/DATA_MODEL/RLS model disagree, **the schema and product decisions win**. The Figma
+supplies palette, metrics, and interaction patterns only.
+
+Conflicts found on first read, and how each was settled:
+
+| Mockup | Accepted model | Resolution |
+|---|---|---|
+| Editable `Inspector` field | `inspector_id` from session; RLS `WITH CHECK` | **Read-only display.** An editable field would promise assignment the database refuses |
+| `Template` picker | not in schema | Dropped; not in V1 |
+| No Client field | `client_name`, indexed in `search_tsv` | Client field **added** to the form |
+| 5 statuses incl. `syncing`, `offline` | `draft`, `submitted` | Two persisted states. Connectivity is transient UI state, never stored — conflating them would undermine D5 |
+| Severity `minor/major/critical` | `low/medium/high/critical` | Schema wins; revisit only via an explicit migration |
+| Punch status `in-review` | `open`, `resolved` | Schema wins |
+| `org`, `license`, `assignee`, `city`, `notes` | absent | Not added — organisation/multi-tenancy is an explicit V1 exclusion |
+| Face ID, password reset | not in SPEC | Not implemented; both are product features, not visual direction |
+| `Reports` / `Settings` tabs | not in V1 workflow | Absent. PDF is a later slice; Settings is unscoped |
+| Home search + status segmented control | SPEC W8 | Deferred to the search slice, not this one |
+
+**Adopted from the mockup:** `#007AFF` / `#F2F2F7` / `rgba(60,60,67,·)` system palette,
+14pt card radius with a 0.5pt hairline border, 44pt rows (50pt on sign-in), right-aligned
+form values, uppercase 13/600 section headers, the shield mark (drawn as a `CustomPainter`
+from the source vector rather than adding an SVG dependency), the white sign-in ground with
+"Field inspection, simplified.", and New Inspection as a bottom sheet with a grab handle.

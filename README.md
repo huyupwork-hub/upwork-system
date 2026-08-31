@@ -70,12 +70,13 @@ Directories are created when they have a purpose, not to match a template.
 ```
 docs/                    specification, acceptance, data model, decisions
 supabase/migrations/     schema + RLS (materialised on Gate 0 acceptance)
+apps/mobile/             Flutter app (Dart source only — see D12)
 supabase/tests/          pgTAP RLS suite
 scripts/                 local database verification runner
 .github/workflows/       CI quality gates
 ```
 
-`apps/mobile/`, `apps/admin/` and `packages/shared/` are added by the slices that need them.
+`apps/admin/` and `packages/shared/` are added by the slices that need them.
 
 ## Verification path
 
@@ -148,3 +149,24 @@ stand-ins. This supersedes the earlier PGlite smoke check, whose harness was nev
 Note what this does **not** establish: no service on that box issues a real JWT, signs a
 storage URL, or serves the Data API. `request.jwt.claims` is set directly by the test files.
 Those paths remain CI-only (D1, D11).
+
+## Running the mobile app
+
+`apps/mobile` commits Dart source only; `android/` and `ios/` are generated (D12).
+
+```bash
+cd apps/mobile
+flutter create --platforms=android,ios --org com.fieldproof --project-name fieldproof .
+git checkout -- lib test pubspec.yaml analysis_options.yaml   # the template rewrites these
+flutter pub get
+flutter run \
+  --dart-define=SUPABASE_URL=https://<project-ref>.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=<anon-key>
+```
+
+The app **fails closed** without those two defines rather than starting in a degraded
+state. Only the anon key is ever passed; the service-role key would bypass RLS and has no
+place in a client.
+
+Slice scope: sign in, sign out, create an inspection, list your own. Photos, PDF, offline
+sync and the admin dashboard are later slices and are deliberately absent.

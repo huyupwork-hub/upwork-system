@@ -136,8 +136,28 @@ jobs:
         run: flutter analyze --fatal-infos
       - name: Test
         run: flutter test --coverage
+      # Platform scaffolding is a generated artifact, not source (D12): no Flutter
+      # toolchain existed on the machine that wrote this app, and hand-committing a
+      # binary gradle wrapper would be worse than regenerating it here.
+      - name: Generate Android scaffolding
+        run: |
+          set -euo pipefail
+          flutter create --platforms=android --org com.fieldproof --project-name fieldproof .
+          # flutter create rewrites template-owned files; ours win.
+          git checkout -- lib test pubspec.yaml analysis_options.yaml
+          # The template grants INTERNET only in the debug and profile manifests, so a
+          # release build would have no network and every Supabase call would fail.
+          manifest=android/app/src/main/AndroidManifest.xml
+          if ! grep -q 'android.permission.INTERNET' "$manifest"; then
+            perl -0pi -e 's|<manifest([^>]*)>|<manifest$1>\n    <uses-permission android:name="android.permission.INTERNET"/>|' "$manifest"
+          fi
+          grep -q 'android.permission.INTERNET' "$manifest"
+
       - name: Build release APK
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release \
+            --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: fieldproof-android-${{ github.sha }}
@@ -159,6 +179,12 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: Generate iOS scaffolding
+        run: |
+          set -euo pipefail
+          flutter create --platforms=ios --org com.fieldproof --project-name fieldproof .
+          git checkout -- lib test pubspec.yaml analysis_options.yaml
+
       - name: Build (no codesign)
         run: flutter build ios --release --no-codesign
 
