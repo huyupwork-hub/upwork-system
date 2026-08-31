@@ -1,4 +1,4 @@
-# V1 Acceptance Criteria
+| L1 | ☑ Android APK builds in CI and is uploaded as an artifact. | Run `33375863716` ✅ — `app-release.apk` **50.1 MB**, artifact `fieldproof-android-7d1fdf5…` 23,533,380 bytes | K2 | ☑ Flutter unit + widget tests pass — **63 tests**, 0 failures. | CI run `33375863716` ✅ # V1 Acceptance Criteria
 
 V1 is complete when **every** criterion below is satisfied *and* the named evidence exists.
 
@@ -36,9 +36,12 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| C1 | ☐ Items can be added, edited, and deleted within an inspection. | Flutter test |
-| C2 | ☐ Items can be reordered, and the order survives a reload. | Flutter test asserting `position` round-trip |
-| C3 | ☑ Severity and status are constrained to their enums. | CI run `d53d066` ✅ |
+| C1 | ☑ Items can be added, edited, and deleted within an inspection. | **Hosted smoke ✅ run `33375863716`** assertions 9–11 and 15 (real client path) + widget coverage in `item_flow_test.dart` |
+| C2 | ☐ Items can be reordered, and the order survives a reload. | Not implemented — `sort_order` is set on append only; reordering is a later slice |
+| C3 | ☑ Severity and status are constrained to their enums. | CI run `d53d066` ✅ · pgTAP `060` rejects `major` and `in-review` (`22P02`) |
+| C4 | ☑ An item can be resolved **and reopened** — the transition is not one-way. | **Hosted smoke ✅ run `33375863716`** assertion 12 · pgTAP `060` |
+| C5 | ☑ Item ownership derives through the parent inspection: another inspector cannot read, create, update or delete items under it. | **Hosted smoke ✅** assertions 13–14 · pgTAP `060` both directions, including the silent zero-row denial |
+| C6 | ☑ The client rejects Figma's enum vocabulary rather than silently accepting it. | `item_models_test.dart` — `minor`, `major`, `in-review` all raise; `constraint_parity_test.dart` reads both enums from the migration |
 
 ## D. Photos
 
@@ -266,3 +269,42 @@ one. Neither is claimed as evidence anywhere.
 
 Photos, PDF, offline drafts, sync, search, and the admin dashboard are later
 slices and remain ☐. iOS verification is pending and macOS-only (L2, D15).
+
+---
+
+## Slice complete — Inspection Detail → Punch Item CRUD
+
+**Status: complete.** Detail screen, add/edit/delete/resolve/reopen, persisted
+through the ordinary authenticated client, evidenced against a real project.
+
+**Run [`33375863716`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33375863716)
+at `7d1fdf5` — every job green:**
+
+| Gate | Result |
+|---|---|
+| Secret hygiene | ✅ 16s |
+| Detect slices | ✅ 16s |
+| Mobile (Flutter) | ✅ 16m47s — format, analyze, **63 tests**, APK **50.1 MB** |
+| Database + RLS | ✅ 1m34s — pgTAP `010`–`060` |
+| Hosted Supabase smoke | ✅ 7m13s — **15/15** |
+
+### Contract decisions this slice exercised
+
+| Question | Resolution |
+|---|---|
+| Severity vocabulary | Schema's `low\|medium\|high\|critical`. The mockup's `minor\|major\|critical` is rejected by the client *and* by Postgres (`22P02`) |
+| Punch status | Schema's `open\|resolved`. `in-review` rejected the same way |
+| Resolve/reopen | Bidirectional. The one-way trigger is on `inspections.status` (D10), not on items — asserted in both directions |
+| Submitted inspections | Items stay editable. `inspection_items_update_own` gates on ownership only, and D10 records that locking submitted content was considered and not adopted. A UI-only lock would be theatre |
+| Figma-only fields | `assignee`, `template`, `organisation` absent. `item_models_test` asserts the insert payload carries exactly the six schema keys |
+
+### Deliberate boundaries
+
+- The Flutter fake enforces **no** ownership rule. A fake that re-implemented
+  RLS would only test itself; isolation is proven by pgTAP `060` and the hosted
+  smoke run.
+- `SupabaseInspectionItemsRepository` raises `NotPermittedException` when an
+  update or delete matches zero rows, because that is how RLS denies — silently.
+  Reporting it as success is the exact failure `020`/`060` test for.
+- **C2 (reordering) is not implemented** and stays ☐. `sort_order` is assigned on
+  append only.
