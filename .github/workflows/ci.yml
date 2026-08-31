@@ -113,6 +113,20 @@ jobs:
     defaults:
       run:
         working-directory: apps/mobile
+    # Caching on a self-hosted runner works the opposite way round to a hosted one.
+    # These all persist on the box between runs, and `actions/checkout` only cleans
+    # the workspace, never $HOME:
+    #
+    #   ~/.gradle                -> /data/gradle       Gradle dist + build cache
+    #   ~/.pub-cache                                   pub packages
+    #   ~/android-sdk                                  SDK, platforms, build-tools
+    #   actions-runner/_work/_tool -> /data/runner-work  Flutter SDK + JDK
+    #
+    # So no actions/cache steps: on self-hosted they would upload and re-download
+    # gigabytes over the network to replace a cache that is already on local disk.
+    # The first cold Gradle build took 1263s; warm builds reuse ~/.gradle.
+    # Do not add steps that clear these, and do not add parallelism — this box has
+    # 5.6 GB of RAM and one runner, so jobs are deliberately serial.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -174,29 +188,9 @@ jobs:
           path: apps/mobile/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
-  ios:
-    name: iOS build verification
-    needs: detect
-    if: needs.detect.outputs.mobile == 'true'
-    runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: apps/mobile
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - run: flutter pub get
-      - name: Generate iOS scaffolding
-        run: |
-          set -euo pipefail
-          flutter create --platforms=ios --org com.fieldproof --project-name fieldproof .
-          git checkout -- lib test pubspec.yaml analysis_options.yaml
-
-      - name: Build (no codesign)
-        run: flutter build ios --release --no-codesign
+  # iOS lives in .github/workflows/ios.yml — it needs a macOS runner, which this
+  # workflow has no execution path to. Keeping it here left a permanently red job
+  # that said nothing about the code, which devalues every other signal in the run.
 
   admin:
     name: Admin (Next.js)

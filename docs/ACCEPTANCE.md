@@ -123,8 +123,8 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| L1 | ◐ Android APK builds in CI and is uploaded as an artifact. | **Blocked**: the self-hosted runner has no Android SDK (`No Android SDK found`) |
-| L2 | ☑ iOS build verification runs on a macOS runner (no signing required). | CI run `33351235214` ✅ 1m52s — at `c796b6f`; not re-run since (macOS runners billing-blocked) |
+| L1 | ☑ Android APK builds in CI and is uploaded as an artifact. | Run `33358859631` ✅ — `app-release.apk` **49.1 MB**, artifact `fieldproof-android-ec9e5e3…` 23,170,151 bytes |
+| L2 | ◐ iOS build verification runs on a macOS runner (no signing required). | **Pending — macOS-only, no execution path.** Passed once on `macos-latest`: run `33351235214`, 1m52s, at `c796b6f`. Not re-verified at HEAD. Moved out of main CI to `.github/workflows/ios.yml`, manual dispatch only (D15) |
 | L3 | ☐ The admin production build succeeds. | CI log |
 | L4 | ☑ Migrations apply cleanly from empty to head. | CI run `d53d066` ✅ |
 | L5 | ☐ CI is green on the default branch. | Actions run URL |
@@ -174,24 +174,37 @@ development machine (D1), so none of it could be run locally either.
 
 ---
 
-## CI verification status — run `33355639632` at `2decd50` (self-hosted T410s)
+## CI verification status — run `33358859631` (self-hosted T410s)
+
+Every gate in the main CI workflow, green:
 
 | Gate | Result |
 |---|---|
 | Detect slices | ✅ 17s |
-| Secret hygiene | ✅ 17s |
+| Secret hygiene | ✅ 16s |
+| **Database + RLS** | ✅ **1m26s** |
 | `dart format --set-exit-if-changed` | ✅ |
 | `flutter analyze --fatal-infos` | ✅ zero issues |
 | `flutter test` | ✅ **28 passed, 0 failed** |
 | Generate Android scaffolding | ✅ |
-| **Database + RLS** | ✅ **1m44s** |
-| Build release APK | ❌ `No Android SDK found` — runner not provisioned |
-| iOS build verification | ❌ job refused — GitHub billing (only `macos-latest` job) |
+| **Build release APK** | ✅ `app-release.apk` **49.1 MB** (Gradle 1263.5s, cold) |
+| Upload artifact | ✅ `fieldproof-android-ec9e5e3…`, 23,170,151 bytes |
 
-Both remaining failures are **environmental, not code**. No gate was weakened or
-skipped, and both still fail loudly.
+Mobile job total: **27m23s** (cold Gradle). Warm builds reuse `~/.gradle`.
 
-The database gate now passes on the service box. Its earlier failure was
-`db-verify.sh`'s own disk fail-fast — the guard working as designed, not a
-regression — and was resolved by giving Docker a dedicated 126 GB partition
-reclaimed from two unused NTFS partitions, rather than by lowering the floor.
+**iOS is not in this table** — it is a separate, manual-only workflow with no
+macOS execution path. See L2 and D15. It is not emulated and not marked passed.
+
+### How each failure was actually fixed
+
+No gate was weakened, skipped, or made non-blocking at any point. In order:
+
+| Failure | Real cause | Fix |
+|---|---|---|
+| `dart format` | formatter unavailable locally (Dart 3.13 needs macOS 14) | CI emits the patch as an artifact; applied verbatim |
+| `flutter analyze` | 5 genuine findings | fixed the code — deprecated `anonKey`, `minSize`, missing braces |
+| `010` pgTAP assertion | contradicted the `NOT is_admin()` guard it was meant to protect | rewrote the assertion |
+| Database disk guard | root filesystem genuinely short | reclaimed 126 GB of unused NTFS; kept `MIN_FREE_GB` at 5 |
+| APK — no SDK | Android SDK absent | installed it, exported via the runner's `.env` |
+| APK — worker killed, no logs | root hit 100% mid-build | moved `~/.gradle` and `_work` onto the 126 GB volume |
+| APK — `Permission denied` on Gradle lock | `/data` was `0710`, inherited from Docker's hardened data root | `chmod 755 /data` |

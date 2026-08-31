@@ -1,0 +1,50 @@
+name: iOS verification
+
+# Manual only. There is deliberately no push or pull_request trigger.
+#
+# This job needs a macOS runner and the project currently has no execution path
+# to one: GitHub-hosted macOS minutes are blocked on this account, and the only
+# self-hosted runner is Linux. Left on an automatic trigger it produced a red job
+# on every commit that said nothing about the code — which trains people to
+# ignore red, and devalues the gates that do mean something.
+#
+# It is NOT emulated, skipped-as-success, or otherwise faked. It is unavailable,
+# and docs/ACCEPTANCE.md records it as such.
+#
+# To run it, either:
+#   * restore GitHub-hosted macOS minutes (fix billing, or make the repo public),
+#     then dispatch this workflow manually; or
+#   * register a self-hosted macOS runner and change `runs-on` below.
+#
+# Last successful execution: run 33351235214 at c796b6f, 1m52s, on macos-latest.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    name: iOS build verification (no codesign)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+
+      # Platform scaffolding is generated, not committed (D12).
+      - name: Generate iOS scaffolding
+        run: |
+          set -euo pipefail
+          flutter create --platforms=ios --org com.fieldproof --project-name fieldproof .
+          git checkout -- lib test pubspec.yaml analysis_options.yaml
+
+      - name: Build (no codesign)
+        run: flutter build ios --release --no-codesign

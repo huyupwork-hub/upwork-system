@@ -176,3 +176,37 @@ Conflicts found on first read, and how each was settled:
 form values, uppercase 13/600 section headers, the shield mark (drawn as a `CustomPainter`
 from the source vector rather than adding an SVG dependency), the white sign-in ground with
 "Field inspection, simplified.", and New Inspection as a bottom sheet with a grab handle.
+
+### D15 — iOS is a separate, manual-only workflow — *Accepted*
+The main CI workflow (`.github/workflows/ci.yml`) contains only jobs that can run
+to completion on the self-hosted Linux runner: detect, secret hygiene, database + RLS,
+Flutter format/analyze/test, Android build, and later the admin checks. iOS lives in
+`.github/workflows/ios.yml` with a `workflow_dispatch` trigger and no automatic one.
+**Why:** iOS needs a macOS runner. GitHub-hosted macOS minutes are billing-blocked on
+this account and the only self-hosted runner is Linux, so the job was refused within
+2–3 seconds of every single run. A permanently red job that says nothing about the code
+trains people to ignore red, and devalues the gates that do mean something.
+**What this is not:** iOS is not emulated on Linux, not skipped-as-success, and not
+marked passed. `ACCEPTANCE.md` L2 records it as pending, macOS-only, with the one
+genuine execution it has had (run `33351235214`, 1m52s, at `c796b6f`) and the fact that
+it is unverified at HEAD.
+**Reversal:** restore hosted macOS minutes — fix billing or make the repository public —
+or register a self-hosted macOS runner, then either dispatch `ios.yml` or fold the job
+back into `ci.yml`. Note that making the repository public while a self-hosted runner is
+attached would let fork pull requests execute code on that machine; move `runs-on` back
+to GitHub-hosted in the same change.
+
+### D16 — CI caches live on the runner's disk, not in `actions/cache` — *Accepted*
+No `actions/cache` steps. `~/.gradle` (→ `/data/gradle`), `~/.pub-cache`, `~/android-sdk`
+and `actions-runner/_work/_tool` (→ `/data/runner-work`) persist between runs;
+`actions/checkout` cleans only the workspace, never `$HOME`.
+**Why:** on a self-hosted runner `actions/cache` would upload and re-download gigabytes
+over the network to replace a cache already sitting on local disk — slower than the thing
+it optimises, and it consumes repository cache quota.
+**Consequence:** the first cold Gradle build took 1263s; warm builds reuse `~/.gradle`.
+Nothing in CI may clear these paths, and jobs stay serial — one runner, 5.6 GB of RAM, so
+parallelism would trade a working build for an out-of-memory one.
+**Storage layout this depends on:** the 126 GB volume is mounted at `/data`, with
+`/data/docker` bind-mounted to `/var/lib/docker`. `/data` must remain traversable
+(`0755`); it was `0710` at first because Docker hardens its own data root, which is what
+broke the Gradle lock file.
