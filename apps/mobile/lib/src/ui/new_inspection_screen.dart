@@ -231,7 +231,7 @@ class _NewInspectionSheetState extends State<NewInspectionSheet> {
           children: [
             CupertinoButton(
               padding: EdgeInsets.zero,
-              minSize: 0,
+              minimumSize: Size.zero,
               onPressed: _busy ? null : () => Navigator.of(context).pop(),
               child: const Text(
                 'Cancel',
@@ -247,7 +247,7 @@ class _NewInspectionSheetState extends State<NewInspectionSheet> {
             ),
             CupertinoButton(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              minSize: 0,
+              minimumSize: Size.zero,
               color: AppColors.blue,
               borderRadius: BorderRadius.circular(8),
               onPressed: _busy ? null : _save,
@@ -266,7 +266,7 @@ class _NewInspectionSheetState extends State<NewInspectionSheet> {
 
   Widget _dateRow() => CupertinoButton(
         padding: EdgeInsets.zero,
-        minSize: 0,
+        minimumSize: Size.zero,
         onPressed: _pickDate,
         child: Container(
           constraints: const BoxConstraints(minHeight: AppMetrics.rowHeight),

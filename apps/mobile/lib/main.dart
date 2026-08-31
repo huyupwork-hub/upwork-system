@@ -13,7 +13,9 @@ Future<void> main() async {
 
   await Supabase.initialize(
     url: Env.supabaseUrl,
-    anonKey: Env.supabaseAnonKey,
+    // Supabase renamed the anon key to the publishable key; same value, and it
+    // is still safe to ship only because RLS is enabled and forced everywhere.
+    publishableKey: Env.supabaseAnonKey,
   );
 
   final client = Supabase.instance.client;

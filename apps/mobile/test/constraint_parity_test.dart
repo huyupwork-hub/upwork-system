@@ -77,8 +77,9 @@ void main() {
 String _repoRoot() {
   var dir = Directory.current;
   for (var i = 0; i < 6; i++) {
-    if (Directory('${dir.path}/supabase/migrations').existsSync())
+    if (Directory('${dir.path}/supabase/migrations').existsSync()) {
       return dir.path;
+    }
     final parent = dir.parent;
     if (parent.path == dir.path) break;
     dir = parent;
