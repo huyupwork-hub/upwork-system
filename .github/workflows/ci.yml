@@ -145,7 +145,15 @@ jobs:
         run: |
           if ! dart format --set-exit-if-changed .; then
             git --no-pager diff > "$GITHUB_WORKSPACE/format.patch"
-            echo '::error::Code is not formatted. Download the format-patch artifact and apply it.'
+            # An empty diff here means dart format did not reformat anything —
+            # it failed outright, which almost always means a file could not be
+            # parsed. Saying 'not formatted' in that case sends the reader to an
+            # empty artifact instead of to the syntax error above.
+            if [ -s "$GITHUB_WORKSPACE/format.patch" ]; then
+              echo '::error::Code is not formatted. Download the format-patch artifact and apply it.'
+            else
+              echo '::error::dart format could not parse a source file. See the output above; there is no patch to apply.'
+            fi
             exit 1
           fi
 

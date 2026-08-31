@@ -86,7 +86,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Finder get searchField => find.byKey(const Key('inspections-search'));
+  // A function, not a variable: FinderBase caches its evaluation, so a single
+  // shared instance would carry the first test's element into the next one.
+  Finder searchField() => find.byKey(const Key('inspections-search'));
 
   group('history', () {
     testWidgets('shows the inspector\'s own inspections, newest date first',
@@ -168,7 +170,7 @@ void main() {
       await signIn(tester);
       expect(find.text('Harbour View Apartments'), findsOneWidget);
 
-      await tester.enterText(searchField, 'northgate');
+      await tester.enterText(searchField(), 'northgate');
       await tester.pumpAndSettle();
 
       expect(find.text('Northgate Retail Park'), findsOneWidget);
@@ -177,7 +179,7 @@ void main() {
 
     testWidgets('search matches the address', (tester) async {
       await signIn(tester);
-      await tester.enterText(searchField, 'bristol');
+      await tester.enterText(searchField(), 'bristol');
       await tester.pumpAndSettle();
 
       expect(find.text('Harbour View Apartments'), findsOneWidget);
@@ -186,7 +188,7 @@ void main() {
 
     testWidgets('search matches the client', (tester) async {
       await signIn(tester);
-      await tester.enterText(searchField, 'meridian');
+      await tester.enterText(searchField(), 'meridian');
       await tester.pumpAndSettle();
 
       expect(find.text('Harbour View Apartments'), findsOneWidget);
@@ -195,11 +197,11 @@ void main() {
     testWidgets('clearing the query restores the whole history',
         (tester) async {
       await signIn(tester);
-      await tester.enterText(searchField, 'northgate');
+      await tester.enterText(searchField(), 'northgate');
       await tester.pumpAndSettle();
       expect(find.text('Harbour View Apartments'), findsNothing);
 
-      await tester.enterText(searchField, '');
+      await tester.enterText(searchField(), '');
       await tester.pumpAndSettle();
 
       expect(find.text('Northgate Retail Park'), findsOneWidget);
@@ -209,7 +211,7 @@ void main() {
     testWidgets('no matches reads differently from no inspections',
         (tester) async {
       await signIn(tester);
-      await tester.enterText(searchField, 'zzzznothing');
+      await tester.enterText(searchField(), 'zzzznothing');
       await tester.pumpAndSettle();
 
       // Distinct keys: "you have none" points at the + button, "nothing
@@ -227,9 +229,9 @@ void main() {
 
       await signIn(tester);
 
-      await tester.enterText(searchField, 'nor');
+      await tester.enterText(searchField(), 'nor');
       await tester.pump(const Duration(milliseconds: 5));
-      await tester.enterText(searchField, 'northgate');
+      await tester.enterText(searchField(), 'northgate');
 
       // Let the fast one land, then the slow one.
       await tester.pump(const Duration(milliseconds: 50));
@@ -254,9 +256,9 @@ void main() {
       inspections.delays['northgate'] = const Duration(milliseconds: 10);
 
       await signIn(tester);
-      await tester.enterText(searchField, 'h');
+      await tester.enterText(searchField(), 'h');
       await tester.pump(const Duration(milliseconds: 5));
-      await tester.enterText(searchField, 'northgate');
+      await tester.enterText(searchField(), 'northgate');
 
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pumpAndSettle();
