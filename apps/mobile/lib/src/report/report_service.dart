@@ -20,9 +20,9 @@ class ReportService {
     required ReportLoader loader,
     required ReportRenderer renderer,
     required ReportSharer sharer,
-  }) : _loader = loader,
-       _renderer = renderer,
-       _sharer = sharer;
+  })  : _loader = loader,
+        _renderer = renderer,
+        _sharer = sharer;
 
   final ReportLoader _loader;
   final ReportRenderer _renderer;

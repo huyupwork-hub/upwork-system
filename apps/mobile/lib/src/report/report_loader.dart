@@ -16,10 +16,10 @@ class ReportLoader {
     required PhotosRepository photos,
     required ProfileRepository profiles,
     DateTime Function() now = DateTime.now,
-  }) : _items = items,
-       _photos = photos,
-       _profiles = profiles,
-       _now = now;
+  })  : _items = items,
+        _photos = photos,
+        _profiles = profiles,
+        _now = now;
 
   final InspectionItemsRepository _items;
   final PhotosRepository _photos;

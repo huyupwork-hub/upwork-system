@@ -325,7 +325,6 @@ class FakePhotoMetadataStore implements PhotoMetadataStore {
   }
 }
 
-
 /// Records what it was asked to render, and returns bytes that look like a PDF.
 class FakeReportRenderer implements ReportRenderer {
   final List<ReportSnapshot> rendered = [];

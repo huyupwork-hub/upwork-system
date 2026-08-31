@@ -18,11 +18,12 @@ import '../data/models.dart';
 /// it would make the report claim there was no photo, which is a different and
 /// worse statement than "this photo could not be read".
 class ReportPhoto {
-  const ReportPhoto.available(this.photo, this.bytes) : unavailableReason = null;
+  const ReportPhoto.available(this.photo, this.bytes)
+      : unavailableReason = null;
 
   const ReportPhoto.unavailable(this.photo, String reason)
-    : bytes = null,
-      unavailableReason = reason;
+      : bytes = null,
+        unavailableReason = reason;
 
   final ItemPhoto photo;
   final List<int>? bytes;
@@ -98,8 +99,8 @@ class ReportSnapshot {
   bool get hasUnavailablePhotos =>
       items.any((i) => i.photos.any((p) => !p.isAvailable));
 
-  int get photoCount =>
-      items.fold(0, (sum, i) => sum + i.photos.where((p) => p.isAvailable).length);
+  int get photoCount => items.fold(
+      0, (sum, i) => sum + i.photos.where((p) => p.isAvailable).length);
 }
 
 /// Raised when a report is requested for an inspection that is not submitted.

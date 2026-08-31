@@ -75,35 +75,35 @@ class PdfReportRenderer implements ReportRenderer {
   }
 
   pw.Widget _title(ReportSnapshot s) => pw.Column(
-    crossAxisAlignment: pw.CrossAxisAlignment.start,
-    children: [
-      pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
-          pw.Text(
-            'FieldProof',
-            style: pw.TextStyle(
-              fontSize: 22,
-              fontWeight: pw.FontWeight.bold,
-              color: _brand,
-            ),
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'FieldProof',
+                style: pw.TextStyle(
+                  fontSize: 22,
+                  fontWeight: pw.FontWeight.bold,
+                  color: _brand,
+                ),
+              ),
+              pw.Text(
+                'Inspection Report',
+                style: const pw.TextStyle(fontSize: 12, color: _muted),
+              ),
+            ],
           ),
+          pw.SizedBox(height: 4),
+          pw.Container(height: 1, color: _rule),
+          pw.SizedBox(height: 14),
           pw.Text(
-            'Inspection Report',
-            style: const pw.TextStyle(fontSize: 12, color: _muted),
+            s.inspection.siteName,
+            style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
           ),
         ],
-      ),
-      pw.SizedBox(height: 4),
-      pw.Container(height: 1, color: _rule),
-      pw.SizedBox(height: 14),
-      pw.Text(
-        s.inspection.siteName,
-        style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-      ),
-    ],
-  );
+      );
 
   pw.Widget _facts(ReportSnapshot s) {
     final i = s.inspection;
@@ -192,17 +192,18 @@ class PdfReportRenderer implements ReportRenderer {
   }
 
   pw.Widget _stat(String label, String value) => pw.Expanded(
-    child: pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text(
-          value,
-          style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              value,
+              style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.Text(label,
+                style: const pw.TextStyle(fontSize: 9, color: _muted)),
+          ],
         ),
-        pw.Text(label, style: const pw.TextStyle(fontSize: 9, color: _muted)),
-      ],
-    ),
-  );
+      );
 
   pw.Widget _item(ReportItem entry, int number) {
     final item = entry.item;
@@ -307,39 +308,39 @@ class PdfReportRenderer implements ReportRenderer {
   }
 
   pw.Widget _runningHeader(ReportSnapshot s) => pw.Container(
-    margin: const pw.EdgeInsets.only(bottom: 10),
-    padding: const pw.EdgeInsets.only(bottom: 4),
-    decoration: const pw.BoxDecoration(
-      border: pw.Border(bottom: pw.BorderSide(color: _rule)),
-    ),
-    child: pw.Row(
-      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-      children: [
-        pw.Text(
-          s.inspection.siteName,
-          style: const pw.TextStyle(fontSize: 9, color: _muted),
+        margin: const pw.EdgeInsets.only(bottom: 10),
+        padding: const pw.EdgeInsets.only(bottom: 4),
+        decoration: const pw.BoxDecoration(
+          border: pw.Border(bottom: pw.BorderSide(color: _rule)),
         ),
-        pw.Text(
-          'FieldProof',
-          style: const pw.TextStyle(fontSize: 9, color: _muted),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(
+              s.inspection.siteName,
+              style: const pw.TextStyle(fontSize: 9, color: _muted),
+            ),
+            pw.Text(
+              'FieldProof',
+              style: const pw.TextStyle(fontSize: 9, color: _muted),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
 
   pw.Widget _footer(pw.Context context, ReportSnapshot s) => pw.Row(
-    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-    children: [
-      pw.Text(
-        'Inspection ${s.inspection.id}',
-        style: const pw.TextStyle(fontSize: 8, color: _muted),
-      ),
-      pw.Text(
-        'Page ${context.pageNumber} of ${context.pagesCount}',
-        style: const pw.TextStyle(fontSize: 8, color: _muted),
-      ),
-    ],
-  );
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(
+            'Inspection ${s.inspection.id}',
+            style: const pw.TextStyle(fontSize: 8, color: _muted),
+          ),
+          pw.Text(
+            'Page ${context.pageNumber} of ${context.pagesCount}',
+            style: const pw.TextStyle(fontSize: 8, color: _muted),
+          ),
+        ],
+      );
 
   static String _timestamp(DateTime d) {
     final u = d.toUtc();

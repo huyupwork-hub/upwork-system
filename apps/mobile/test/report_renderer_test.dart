@@ -26,15 +26,15 @@ void main() {
   ];
 
   Inspection inspection({String? address, String? client}) => Inspection(
-    id: 'a0000000-0000-4000-8000-000000000002',
-    inspectorId: 'user-1',
-    siteName: 'Northgate Retail Park',
-    siteAddress: address,
-    clientName: client,
-    inspectionDate: DateTime(2026, 8, 22),
-    status: InspectionStatus.submitted,
-    submittedAt: DateTime.utc(2026, 8, 22, 14),
-  );
+        id: 'a0000000-0000-4000-8000-000000000002',
+        inspectorId: 'user-1',
+        siteName: 'Northgate Retail Park',
+        siteAddress: address,
+        clientName: client,
+        inspectionDate: DateTime(2026, 8, 22),
+        status: InspectionStatus.submitted,
+        submittedAt: DateTime.utc(2026, 8, 22, 14),
+      );
 
   ReportItem reportItem(
     int n, {
@@ -43,34 +43,36 @@ void main() {
     String? description,
     ItemSeverity severity = ItemSeverity.medium,
     ItemStatus status = ItemStatus.open,
-  }) => ReportItem(
-    item: InspectionItem(
-      id: 'item-$n',
-      inspectionId: 'a0000000-0000-4000-8000-000000000002',
-      sortOrder: n,
-      title: 'Defect number $n',
-      area: area,
-      description: description,
-      severity: severity,
-      status: status,
-    ),
-    photos: photos,
-  );
+  }) =>
+      ReportItem(
+        item: InspectionItem(
+          id: 'item-$n',
+          inspectionId: 'a0000000-0000-4000-8000-000000000002',
+          sortOrder: n,
+          title: 'Defect number $n',
+          area: area,
+          description: description,
+          severity: severity,
+          status: status,
+        ),
+        photos: photos,
+      );
 
   ReportSnapshot snapshot({
     List<ReportItem> items = const [],
     String? address = '4 Northgate Way, Leeds',
     String? client = 'Cavendish Estates',
-  }) => ReportSnapshot(
-    inspection: inspection(address: address, client: client),
-    inspector: const Profile(
-      id: 'user-1',
-      fullName: 'Inspector Alpha',
-      role: 'inspector',
-    ),
-    items: items,
-    generatedAt: DateTime.utc(2026, 9, 1, 9, 30),
-  );
+  }) =>
+      ReportSnapshot(
+        inspection: inspection(address: address, client: client),
+        inspector: const Profile(
+          id: 'user-1',
+          fullName: 'Inspector Alpha',
+          role: 'inspector',
+        ),
+        items: items,
+        generatedAt: DateTime.utc(2026, 9, 1, 9, 30),
+      );
 
   String head(Uint8List bytes) =>
       String.fromCharCodes(bytes.take(8)); // '%PDF-1.x'
@@ -235,7 +237,8 @@ void main() {
         items: const [],
         generatedAt: DateTime.utc(2026, 1, 2),
       );
-      expect(reportFilename(snap), startsWith('fieldproof-inspection-20260102-'));
+      expect(
+          reportFilename(snap), startsWith('fieldproof-inspection-20260102-'));
     });
   });
 }

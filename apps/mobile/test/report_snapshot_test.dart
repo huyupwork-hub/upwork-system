@@ -43,17 +43,18 @@ void main() {
     String? area,
     String? description,
     DateTime? createdAt,
-  }) => InspectionItem(
-    id: id,
-    inspectionId: submitted.id,
-    sortOrder: sortOrder,
-    title: 'Item $id',
-    area: area,
-    description: description,
-    severity: severity,
-    status: status,
-    createdAt: createdAt,
-  );
+  }) =>
+      InspectionItem(
+        id: id,
+        inspectionId: submitted.id,
+        sortOrder: sortOrder,
+        title: 'Item $id',
+        area: area,
+        description: description,
+        severity: severity,
+        status: status,
+        createdAt: createdAt,
+      );
 
   setUp(() {
     items = FakeInspectionItemsRepository();
@@ -124,7 +125,8 @@ void main() {
 
   group('items', () {
     test('every item is included', () async {
-      items.rows.addAll([item('a'), item('b', sortOrder: 1), item('c', sortOrder: 2)]);
+      items.rows.addAll(
+          [item('a'), item('b', sortOrder: 1), item('c', sortOrder: 2)]);
       final snap = await loader.load(submitted);
       expect(snap.items, hasLength(3));
     });
@@ -255,9 +257,8 @@ void main() {
       await attach('a', createdAt: DateTime.utc(2026, 8, 2));
 
       final snap = await loader.load(submitted);
-      final dates = snap.items.single.photos
-          .map((p) => p.photo.createdAt!)
-          .toList();
+      final dates =
+          snap.items.single.photos.map((p) => p.photo.createdAt!).toList();
       expect(dates, [
         DateTime.utc(2026, 8, 1),
         DateTime.utc(2026, 8, 2),

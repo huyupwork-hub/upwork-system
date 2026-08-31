@@ -102,10 +102,10 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
   }
 
   static String _stageLabel(ReportStage stage) => switch (stage) {
-    ReportStage.loading => 'Collecting the inspection…',
-    ReportStage.rendering => 'Building the PDF…',
-    ReportStage.sharing => 'Opening share sheet…',
-  };
+        ReportStage.loading => 'Collecting the inspection…',
+        ReportStage.rendering => 'Building the PDF…',
+        ReportStage.sharing => 'Opening share sheet…',
+      };
 
   @override
   Widget build(BuildContext context) {
