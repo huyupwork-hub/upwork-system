@@ -12,18 +12,25 @@ void main() {
   late FakeAuthRepository auth;
   late FakeProfileRepository profiles;
   late FakeInspectionsRepository inspections;
+  late FakeInspectionItemsRepository items;
 
   setUp(() {
     auth = FakeAuthRepository();
     profiles = FakeProfileRepository();
     inspections = FakeInspectionsRepository();
+    items = FakeInspectionItemsRepository();
   });
 
   tearDown(() => auth.dispose());
 
   Future<void> pumpApp(WidgetTester tester) async {
     await tester.pumpWidget(
-      FieldProofApp(auth: auth, profiles: profiles, inspections: inspections),
+      FieldProofApp(
+        auth: auth,
+        profiles: profiles,
+        inspections: inspections,
+        items: items,
+      ),
     );
     await tester.pumpAndSettle();
   }

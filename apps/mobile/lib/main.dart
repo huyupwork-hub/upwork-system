@@ -25,6 +25,7 @@ Future<void> main() async {
       auth: SupabaseAuthRepository(client),
       profiles: SupabaseProfileRepository(client),
       inspections: SupabaseInspectionsRepository(client),
+      items: SupabaseInspectionItemsRepository(client),
     ),
   );
 }

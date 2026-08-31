@@ -1,5 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
+import '../data/models.dart';
+
 /// Design tokens transcribed from the approved Figma Make file.
 ///
 /// The Figma is the visual direction only; the schema and the accepted product
@@ -341,6 +343,62 @@ class PrimaryButton extends StatelessWidget {
                   color: AppColors.card,
                 ),
               ),
+      ),
+    );
+  }
+}
+
+/// Severity colours.
+///
+/// The Figma mockup has three severities (`minor | major | critical`); the
+/// accepted schema has four. Rather than migrate the database to match a
+/// picture (D14), the mockup's own iOS palette is stretched across the four
+/// values as a natural ramp: green -> yellow -> orange -> red.
+///
+/// Tints are precomputed ARGB constants because `withOpacity` is deprecated on
+/// newer SDKs and `withValues` does not exist on older ones.
+class SeverityPalette {
+  const SeverityPalette._();
+
+  static Color foreground(ItemSeverity s) => switch (s) {
+    ItemSeverity.low => AppColors.green,
+    ItemSeverity.medium => const Color(0xFFB58900),
+    ItemSeverity.high => const Color(0xFFFF9500),
+    ItemSeverity.critical => AppColors.red,
+  };
+
+  /// ~15% of the foreground, for the chip background.
+  static Color tint(ItemSeverity s) => switch (s) {
+    ItemSeverity.low => const Color(0x2634C759),
+    ItemSeverity.medium => const Color(0x26FFCC00),
+    ItemSeverity.high => const Color(0x26FF9500),
+    ItemSeverity.critical => const Color(0x26FF3B30),
+  };
+}
+
+/// A severity chip: colour plus the word, never colour alone. Severity is the
+/// field a reader acts on, and colour by itself excludes anyone who cannot
+/// distinguish these hues.
+class SeverityChip extends StatelessWidget {
+  const SeverityChip({super.key, required this.severity});
+
+  final ItemSeverity severity;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: SeverityPalette.tint(severity),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        severity.label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: SeverityPalette.foreground(severity),
+        ),
       ),
     );
   }

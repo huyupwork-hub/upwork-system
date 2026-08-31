@@ -158,3 +158,172 @@ class InspectionLimits {
       validateSiteAddress(draft.siteAddress) == null &&
       validateClientName(draft.clientName) == null;
 }
+
+// ---------------------------------------------------------------- punch items
+
+/// Severity as the accepted schema defines it (`item_severity`).
+///
+/// The Figma mockup shows `minor | major | critical`. The schema wins (D14): the
+/// mockup's palette is adapted to these four values in the UI, rather than the
+/// database being migrated to match a picture.
+enum ItemSeverity {
+  low,
+  medium,
+  high,
+  critical;
+
+  static ItemSeverity fromWire(String value) => switch (value) {
+    'low' => ItemSeverity.low,
+    'medium' => ItemSeverity.medium,
+    'high' => ItemSeverity.high,
+    'critical' => ItemSeverity.critical,
+    _ => throw ArgumentError.value(value, 'severity', 'unknown item severity'),
+  };
+
+  String get wire => name;
+
+  String get label => switch (this) {
+    ItemSeverity.low => 'Low',
+    ItemSeverity.medium => 'Medium',
+    ItemSeverity.high => 'High',
+    ItemSeverity.critical => 'Critical',
+  };
+}
+
+/// Punch status as the accepted schema defines it (`item_status`).
+///
+/// The mockup also has `in-review`; the schema has two values and wins (D14).
+/// Unlike `inspections.status`, this transition is *not* one-way — no trigger
+/// constrains it — so resolve and reopen are both supported.
+enum ItemStatus {
+  open,
+  resolved;
+
+  static ItemStatus fromWire(String value) => switch (value) {
+    'open' => ItemStatus.open,
+    'resolved' => ItemStatus.resolved,
+    _ => throw ArgumentError.value(value, 'status', 'unknown item status'),
+  };
+
+  String get wire => name;
+
+  bool get isResolved => this == ItemStatus.resolved;
+}
+
+class InspectionItem {
+  const InspectionItem({
+    required this.id,
+    required this.inspectionId,
+    required this.sortOrder,
+    required this.title,
+    required this.severity,
+    required this.status,
+    this.description,
+    this.area,
+    this.createdAt,
+  });
+
+  final String id;
+  final String inspectionId;
+  final int sortOrder;
+  final String title;
+  final String? description;
+  final String? area;
+  final ItemSeverity severity;
+  final ItemStatus status;
+  final DateTime? createdAt;
+
+  factory InspectionItem.fromRow(Map<String, dynamic> row) => InspectionItem(
+    id: row['id'] as String,
+    inspectionId: row['inspection_id'] as String,
+    sortOrder: row['sort_order'] as int,
+    title: row['title'] as String,
+    description: row['description'] as String?,
+    area: row['area'] as String?,
+    severity: ItemSeverity.fromWire(row['severity'] as String),
+    status: ItemStatus.fromWire(row['status'] as String),
+    createdAt: row['created_at'] == null
+        ? null
+        : DateTime.parse(row['created_at'] as String),
+  );
+}
+
+/// A not-yet-persisted punch item.
+class NewInspectionItem {
+  const NewInspectionItem({
+    required this.title,
+    this.description,
+    this.area,
+    this.severity = ItemSeverity.medium,
+  });
+
+  final String title;
+  final String? description;
+  final String? area;
+  final ItemSeverity severity;
+
+  /// The insert payload.
+  ///
+  /// `inspection_id` is supplied by the repository, never by the caller, so a
+  /// client cannot express an item under someone else's inspection. RLS would
+  /// refuse it anyway; this makes it unrepresentable a layer earlier — the same
+  /// rule `NewInspection` follows for `inspector_id`.
+  ///
+  /// `status` is omitted so the column default ('open') applies.
+  Map<String, dynamic> toInsert({
+    required String inspectionId,
+    required int sortOrder,
+  }) => {
+    'inspection_id': inspectionId,
+    'sort_order': sortOrder,
+    'title': title.trim(),
+    'description': nullIfBlank(description),
+    'area': nullIfBlank(area),
+    'severity': severity.wire,
+  };
+
+  /// Public because updates apply the same blank-to-null rule as inserts.
+  static String? nullIfBlank(String? v) {
+    final trimmed = v?.trim() ?? '';
+    return trimmed.isEmpty ? null : trimmed;
+  }
+}
+
+/// Client-side mirrors of the `inspection_items` CHECK constraints.
+class ItemLimits {
+  const ItemLimits._();
+
+  static const int titleMax = 200;
+  static const int descriptionMax = 4000;
+  static const int areaMax = 120;
+
+  static String? validateTitle(String? value) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return 'Title is required.';
+    if (v.length > titleMax) {
+      return 'Title must be $titleMax characters or fewer.';
+    }
+    return null;
+  }
+
+  static String? validateDescription(String? value) {
+    final v = (value ?? '').trim();
+    if (v.length > descriptionMax) {
+      return 'Description must be $descriptionMax characters or fewer.';
+    }
+    return null;
+  }
+
+  static String? validateArea(String? value) {
+    final v = (value ?? '').trim();
+    if (v.length > areaMax) {
+      return 'Area must be $areaMax characters or fewer.';
+    }
+    return null;
+  }
+
+  static bool isValid(NewInspectionItem draft) =>
+      validateTitle(draft.title) == null &&
+      validateDescription(draft.description) == null &&
+      validateArea(draft.area) == null;
+}

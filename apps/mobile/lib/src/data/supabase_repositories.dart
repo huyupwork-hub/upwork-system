@@ -98,3 +98,101 @@ class SupabaseInspectionsRepository implements InspectionsRepository {
     return rows.map(Inspection.fromRow).toList(growable: false);
   }
 }
+
+class SupabaseInspectionItemsRepository implements InspectionItemsRepository {
+  SupabaseInspectionItemsRepository(this._client);
+
+  final SupabaseClient _client;
+
+  static const String _columns =
+      'id, inspection_id, sort_order, title, description, area, '
+      'severity, status, created_at';
+
+  @override
+  Future<List<InspectionItem>> listFor(String inspectionId) async {
+    if (_client.auth.currentUser == null) throw const NotSignedInException();
+
+    // RLS already restricts this to inspections the caller owns; the explicit
+    // filter is what selects *this* inspection, and it matches the
+    // (inspection_id, sort_order) index.
+    final rows = await _client
+        .from('inspection_items')
+        .select(_columns)
+        .eq('inspection_id', inspectionId)
+        .order('sort_order')
+        .order('created_at');
+
+    return rows.map(InspectionItem.fromRow).toList(growable: false);
+  }
+
+  @override
+  Future<InspectionItem> create(
+    String inspectionId,
+    NewInspectionItem draft,
+  ) async {
+    if (_client.auth.currentUser == null) throw const NotSignedInException();
+
+    // Append at the end. sort_order is non-unique by design (D7), so a race
+    // producing two items with the same value is harmless — created_at breaks
+    // the tie — and needs no locking.
+    final existing = await listFor(inspectionId);
+    final nextOrder = existing.isEmpty ? 0 : existing.last.sortOrder + 1;
+
+    final row = await _client
+        .from('inspection_items')
+        .insert(draft.toInsert(inspectionId: inspectionId, sortOrder: nextOrder))
+        .select(_columns)
+        .single();
+
+    return InspectionItem.fromRow(row);
+  }
+
+  @override
+  Future<InspectionItem> update(
+    String itemId, {
+    required String title,
+    String? description,
+    String? area,
+    required ItemSeverity severity,
+    required ItemStatus status,
+  }) async {
+    if (_client.auth.currentUser == null) throw const NotSignedInException();
+
+    // inspection_id is deliberately absent: an item cannot be moved to another
+    // inspection, which is also how it cannot be moved to another owner.
+    final rows = await _client
+        .from('inspection_items')
+        .update({
+          'title': title.trim(),
+          'description': NewInspectionItem.nullIfBlank(description),
+          'area': NewInspectionItem.nullIfBlank(area),
+          'severity': severity.wire,
+          'status': status.wire,
+        })
+        .eq('id', itemId)
+        .select(_columns);
+
+    // RLS denies a non-owner's UPDATE silently, by matching zero rows rather
+    // than raising. Reporting success here would be a lie.
+    if (rows.isEmpty) {
+      throw const NotPermittedException('update this item');
+    }
+    return InspectionItem.fromRow(rows.first);
+  }
+
+  @override
+  Future<void> delete(String itemId) async {
+    if (_client.auth.currentUser == null) throw const NotSignedInException();
+
+    final rows = await _client
+        .from('inspection_items')
+        .delete()
+        .eq('id', itemId)
+        .select('id');
+
+    // Same silent-denial shape as update.
+    if (rows.isEmpty) {
+      throw const NotPermittedException('delete this item');
+    }
+  }
+}

@@ -99,3 +99,106 @@ class FakeInspectionsRepository implements InspectionsRepository {
   @override
   Future<List<Inspection>> listMine() async => List.unmodifiable(rows);
 }
+
+/// In-memory punch items.
+///
+/// Note what this does NOT do: it enforces no ownership rule of any kind. Any
+/// caller can read or mutate anything in it. That is deliberate — a fake that
+/// re-implemented RLS would only be testing the fake. Ownership is proven by
+/// pgTAP (`020`, `060`) and by the hosted smoke test against real policies.
+class FakeInspectionItemsRepository implements InspectionItemsRepository {
+  FakeInspectionItemsRepository({List<InspectionItem>? initial})
+    : rows = [...?initial];
+
+  final List<InspectionItem> rows;
+
+  /// Every insert payload this repository was asked to persist.
+  final List<Map<String, dynamic>> insertPayloads = [];
+
+  /// Ids passed to delete().
+  final List<String> deleted = [];
+
+  Object? failWith;
+
+  int _seq = 0;
+
+  @override
+  Future<List<InspectionItem>> listFor(String inspectionId) async {
+    final matching = rows.where((r) => r.inspectionId == inspectionId).toList()
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    return List.unmodifiable(matching);
+  }
+
+  @override
+  Future<InspectionItem> create(
+    String inspectionId,
+    NewInspectionItem draft,
+  ) async {
+    if (failWith != null) throw failWith!;
+
+    final existing = await listFor(inspectionId);
+    final sortOrder = existing.isEmpty ? 0 : existing.last.sortOrder + 1;
+
+    // Mirrors the production path: the parent comes from the argument, never
+    // from the draft, so a caller cannot name another inspection.
+    final payload = draft.toInsert(
+      inspectionId: inspectionId,
+      sortOrder: sortOrder,
+    );
+    insertPayloads.add(payload);
+
+    final item = InspectionItem(
+      id: 'item-${++_seq}',
+      inspectionId: payload['inspection_id'] as String,
+      sortOrder: payload['sort_order'] as int,
+      title: payload['title'] as String,
+      description: payload['description'] as String?,
+      area: payload['area'] as String?,
+      severity: ItemSeverity.fromWire(payload['severity'] as String),
+      status: ItemStatus.open,
+    );
+    rows.add(item);
+    return item;
+  }
+
+  @override
+  Future<InspectionItem> update(
+    String itemId, {
+    required String title,
+    String? description,
+    String? area,
+    required ItemSeverity severity,
+    required ItemStatus status,
+  }) async {
+    if (failWith != null) throw failWith!;
+
+    final index = rows.indexWhere((r) => r.id == itemId);
+    if (index < 0) throw const NotPermittedException('update this item');
+
+    final old = rows[index];
+    final updated = InspectionItem(
+      id: old.id,
+      inspectionId: old.inspectionId,
+      sortOrder: old.sortOrder,
+      title: title.trim(),
+      description: NewInspectionItem.nullIfBlank(description),
+      area: NewInspectionItem.nullIfBlank(area),
+      severity: severity,
+      status: status,
+    );
+    rows[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> delete(String itemId) async {
+    if (failWith != null) throw failWith!;
+
+    deleted.add(itemId);
+    final before = rows.length;
+    rows.removeWhere((r) => r.id == itemId);
+    if (rows.length == before) {
+      throw const NotPermittedException('delete this item');
+    }
+  }
+}

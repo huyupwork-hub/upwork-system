@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../data/models.dart';
 import '../data/repositories.dart';
+import 'inspection_detail_screen.dart';
 import 'new_inspection_screen.dart';
 import 'theme.dart';
 
@@ -19,11 +20,13 @@ class InspectionsScreen extends StatefulWidget {
     required this.auth,
     required this.profiles,
     required this.inspections,
+    required this.items,
   });
 
   final AuthRepository auth;
   final ProfileRepository profiles;
   final InspectionsRepository inspections;
+  final InspectionItemsRepository items;
 
   @override
   State<InspectionsScreen> createState() => _InspectionsScreenState();
@@ -67,6 +70,17 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
       inspectorName: profile.fullName,
     );
     if (created != null) await _load();
+  }
+
+  Future<void> _openDetail(Inspection inspection) async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => InspectionDetailScreen(
+          inspection: inspection,
+          items: widget.items,
+        ),
+      ),
+    );
   }
 
   @override
@@ -145,7 +159,10 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
       children: [
         const SectionHeader(label: 'All Inspections'),
         InsetCard(
-          children: [for (final row in rows) _InspectionRow(inspection: row)],
+          children: [
+            for (final row in rows)
+              _InspectionRow(inspection: row, onTap: () => _openDetail(row)),
+          ],
         ),
         if (_profile != null)
           Padding(
@@ -162,9 +179,10 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
 }
 
 class _InspectionRow extends StatelessWidget {
-  const _InspectionRow({required this.inspection});
+  const _InspectionRow({required this.inspection, required this.onTap});
 
   final Inspection inspection;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -173,33 +191,44 @@ class _InspectionRow extends StatelessWidget {
       if (inspection.clientName != null) inspection.clientName!,
     ].join('  ·  ');
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  inspection.siteName,
-                  style: const TextStyle(fontSize: 17, color: AppColors.label),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.label2,
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      minimumSize: Size.zero,
+      onPressed: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    inspection.siteName,
+                    style: const TextStyle(fontSize: 17, color: AppColors.label),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.label2,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          _StatusPill(status: inspection.status),
-        ],
+            _StatusPill(status: inspection.status),
+            const SizedBox(width: 6),
+            const Icon(
+              CupertinoIcons.chevron_forward,
+              size: 16,
+              color: AppColors.label3,
+            ),
+          ],
+        ),
       ),
     );
   }

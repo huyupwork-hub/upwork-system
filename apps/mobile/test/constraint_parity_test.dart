@@ -59,6 +59,52 @@ void main() {
     );
   });
 
+  test('item title limit matches inspection_items_title_len', () {
+    expect(
+      ItemLimits.titleMax,
+      upperBound(
+        RegExp(r'char_length(title)s+betweens+1s+ands+(\d+)'),
+        'item title',
+      ),
+    );
+  });
+
+  test('item description limit matches inspection_items_description_len', () {
+    expect(
+      ItemLimits.descriptionMax,
+      upperBound(
+        RegExp(r'char_length(description)s*<=s*(\d+)'),
+        'item description',
+      ),
+    );
+  });
+
+  test('item area limit matches inspection_items_area_len', () {
+    expect(
+      ItemLimits.areaMax,
+      upperBound(RegExp(r'char_length(area)s*<=s*(\d+)'), 'item area'),
+    );
+  });
+
+  test('severity and punch-status enums match the schema declarations', () {
+    Set<String> declared(String typeName) {
+      final m = RegExp(
+        'create type public\.\s+as enum \(([^)]*)\)',
+      ).firstMatch(sql);
+      expect(m, isNotNull, reason: 'no  enum found');
+      return RegExp("'([a-z_]+)'")
+          .allMatches(m!.group(1)!)
+          .map((x) => x.group(1)!)
+          .toSet();
+    }
+
+    expect(
+      declared('item_severity'),
+      ItemSeverity.values.map((v) => v.wire).toSet(),
+    );
+    expect(declared('item_status'), ItemStatus.values.map((v) => v.wire).toSet());
+  });
+
   test('the enum the client models matches the one the schema declares', () {
     final match = RegExp(
       r"create type public\.inspection_status\s+as enum \(([^)]*)\)",

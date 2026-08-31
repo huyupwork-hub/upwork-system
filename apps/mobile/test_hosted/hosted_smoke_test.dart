@@ -87,6 +87,10 @@ void main() {
   late ProfileRepository profilesA;
   late InspectionsRepository inspectionsA;
   late InspectionsRepository inspectionsB;
+  late InspectionItemsRepository itemsA;
+  late InspectionItemsRepository itemsB;
+
+  InspectionItem? item;
 
   late String userAId;
   late String userBId;
@@ -122,6 +126,8 @@ void main() {
     profilesA = SupabaseProfileRepository(clientA);
     inspectionsA = SupabaseInspectionsRepository(clientA);
     inspectionsB = SupabaseInspectionsRepository(clientB);
+    itemsA = SupabaseInspectionItemsRepository(clientA);
+    itemsB = SupabaseInspectionItemsRepository(clientB);
   });
 
   tearDownAll(() async {
@@ -228,5 +234,123 @@ void main() {
       }),
       throwsA(isA<PostgrestException>()),
     );
+  });
+
+  // ------------------------------------------------------------ punch items
+  //
+  // Item ownership derives entirely through the parent inspection — there is no
+  // inspector_id on inspection_items — so these assertions are what prove that
+  // indirection holds against real policies, not just in pgTAP.
+
+  test('9. user A creates an item under their own inspection', () async {
+    item = await itemsA.create(
+      created!.id,
+      const NewInspectionItem(
+        title: 'Exposed wiring at junction box',
+        description: 'Cover plate missing.',
+        area: 'Plant room',
+        severity: ItemSeverity.critical,
+      ),
+    );
+
+    expect(item!.inspectionId, created!.id);
+    expect(item!.severity, ItemSeverity.critical);
+    expect(item!.status, ItemStatus.open,
+        reason: 'status is omitted on insert so the column default applies');
+  });
+
+  test('10. user A reads the item back', () async {
+    final rows = await itemsA.listFor(created!.id);
+    expect(rows.where((i) => i.id == item!.id), hasLength(1));
+    expect(rows.single.title, 'Exposed wiring at junction box');
+    expect(rows.single.area, 'Plant room');
+  });
+
+  test('11. user A edits the item', () async {
+    final updated = await itemsA.update(
+      item!.id,
+      title: 'Exposed wiring — made safe',
+      description: 'Cover plate refitted.',
+      area: 'Plant room',
+      severity: ItemSeverity.high,
+      status: ItemStatus.open,
+    );
+    expect(updated.title, 'Exposed wiring — made safe');
+    expect(updated.severity, ItemSeverity.high);
+  });
+
+  test('12. user A resolves then reopens the item', () async {
+    final resolved = await itemsA.update(
+      item!.id,
+      title: 'Exposed wiring — made safe',
+      area: 'Plant room',
+      severity: ItemSeverity.high,
+      status: ItemStatus.resolved,
+    );
+    expect(resolved.status, ItemStatus.resolved);
+
+    // Not one-way, unlike inspections.status (D10).
+    final reopened = await itemsA.update(
+      item!.id,
+      title: 'Exposed wiring — made safe',
+      area: 'Plant room',
+      severity: ItemSeverity.high,
+      status: ItemStatus.open,
+    );
+    expect(reopened.status, ItemStatus.open);
+  });
+
+  test('13. user B cannot read, update or delete user A item', () async {
+    final visible = await itemsB.listFor(created!.id);
+    expect(visible, isEmpty, reason: 'B cannot list items under A inspection');
+
+    final byId = await clientB
+        .from('inspection_items')
+        .select('id')
+        .eq('id', item!.id);
+    expect(byId, isEmpty, reason: 'nor read it by direct id');
+
+    // The repository turns a silent zero-row denial into an exception rather
+    // than reporting success, which is the behaviour under test.
+    await expectLater(
+      itemsB.update(
+        item!.id,
+        title: 'HIJACKED BY B',
+        severity: ItemSeverity.low,
+        status: ItemStatus.resolved,
+      ),
+      throwsA(isA<NotPermittedException>()),
+    );
+    await expectLater(
+      itemsB.delete(item!.id),
+      throwsA(isA<NotPermittedException>()),
+    );
+
+    // Confirm against the data, since RLS denies by matching nothing.
+    final after = await clientA
+        .from('inspection_items')
+        .select('title, severity, status')
+        .eq('id', item!.id)
+        .single();
+    expect(after['title'], 'Exposed wiring — made safe');
+    expect(after['severity'], 'high');
+    expect(after['status'], 'open');
+  });
+
+  test('14. user B cannot create an item under user A inspection', () async {
+    await expectLater(
+      clientB.from('inspection_items').insert({
+        'inspection_id': created!.id,
+        'title': 'PLANTED BY B',
+      }),
+      throwsA(isA<PostgrestException>()),
+    );
+  });
+
+  test('15. user A deletes the item', () async {
+    await itemsA.delete(item!.id);
+    final rows = await itemsA.listFor(created!.id);
+    expect(rows.where((i) => i.id == item!.id), isEmpty);
+    item = null;
   });
 }

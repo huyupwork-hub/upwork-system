@@ -52,3 +52,37 @@ class NotSignedInException implements Exception {
   @override
   String toString() => 'No active session.';
 }
+
+abstract interface class InspectionItemsRepository {
+  /// Items for one inspection, in `sort_order` then `created_at`.
+  Future<List<InspectionItem>> listFor(String inspectionId);
+
+  /// Persists a new item under [inspectionId].
+  Future<InspectionItem> create(String inspectionId, NewInspectionItem draft);
+
+  /// Updates the editable fields of an existing item.
+  Future<InspectionItem> update(
+    String itemId, {
+    required String title,
+    String? description,
+    String? area,
+    required ItemSeverity severity,
+    required ItemStatus status,
+  });
+
+  Future<void> delete(String itemId);
+}
+
+/// Raised when the database accepted the request but changed nothing, which is
+/// how RLS denies an UPDATE or DELETE — zero rows matched, no error.
+///
+/// Without this the app would report a silent denial as success, which is the
+/// exact failure the pgTAP suite tests for at the database level.
+class NotPermittedException implements Exception {
+  const NotPermittedException(this.action);
+  final String action;
+
+  @override
+  String toString() =>
+      'Not permitted to $action. It may belong to another inspector.';
+}
