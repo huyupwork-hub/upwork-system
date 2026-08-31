@@ -39,10 +39,17 @@ select throws_ok(
 -- D8: the composite FK makes a mismatched inspection_id impossible.
 select throws_ok(
   $$insert into public.item_photos (item_id, inspection_id, storage_path, content_type, byte_size)
-    values ('a1000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000002',
+    values ('a1000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000001',
             'x/y/z/mismatch.jpg', 'image/jpeg', 1000)$$,
-  '23503', null, 'a photo cannot claim an inspection its parent item does not belong to'
+  '42501', null,
+  'a photo cannot claim an inspection its parent item does not belong to'
 );
+
+-- Note the errcode above is 42501, not the composite FK''s 23503. Under D17 the
+-- WITH CHECK is evaluated first, and the claimed inspection belongs to inspector
+-- B, so RLS refuses before the foreign key is ever consulted. The mismatch is
+-- still rejected; it is simply caught one layer earlier. The FK itself is proven
+-- below, on two inspections the caller does own.
 
 -- Submission is deliberately exercised at the END of this file. Under D17 a
 -- submitted inspection is immutable, so submitting DRAFT_A early would deny
@@ -101,6 +108,23 @@ select throws_ok(
             'image/jpeg', 482113)$$,
   '23505', null,
   'a duplicate storage_path is rejected'
+);
+
+-- ---------------------------------------------------------------- D8: composite FK
+--
+-- Both inspections here are owned by the caller and both are drafts, so RLS
+-- permits the write and the composite foreign key is what rejects it. That is
+-- the assertion D8 is actually about: a photo cannot name an inspection its
+-- parent item does not belong to.
+
+select throws_ok(
+  $$insert into public.item_photos
+      (item_id, inspection_id, storage_path, content_type, byte_size)
+    values ('a1000000-0000-4000-8000-000000000001',
+            'c0000000-0000-4000-8000-000000000001',
+            'x/y/z/owned-mismatch.jpg', 'image/jpeg', 1000)$$,
+  '23503', null,
+  'the composite FK rejects a photo whose item belongs to another inspection'
 );
 
 -- ---------------------------------------------------------------- B4: cascade
