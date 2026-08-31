@@ -53,7 +53,19 @@ void main() {
 
   tearDown(() => auth.dispose());
 
+  /// The default 800x600 test viewport is shorter than the item editor sheet
+  /// once it carries a Photos section, and a lazy ListView never builds a child
+  /// that is off-screen — so ensureVisible cannot reach it either. A taller
+  /// surface keeps the sheet's actions in the tree without changing the app.
+  void useTallViewport(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
   Future<void> openDetail(WidgetTester tester) async {
+    useTallViewport(tester);
     await tester.pumpWidget(
       FieldProofApp(
         auth: auth,
@@ -203,6 +215,7 @@ void main() {
     );
 
     Future<void> openSubmitted(WidgetTester tester) async {
+      useTallViewport(tester);
       inspections.rows
         ..clear()
         ..add(submitted);
