@@ -112,6 +112,11 @@ Realtime seeder from inside database startup, and `supabase start -x realtime` d
 skip it. On a pre-AVX CPU that seeder aborts with SIGILL (exit 132) before any migration is
 applied. CI enforces the flag.
 
+The script preflights free disk space on Docker's data root. `supabase/postgres` is a large
+image, and when the disk is short the CLI reports only `container is not ready: unhealthy` —
+the real `initdb: ... No space left on device` is buried in the container log, after the pull
+has already been spent. Tune with `MIN_FREE_GB`, bypass with `SKIP_DISK_CHECK=1`.
+
 **Limitation, local only:** the service box exercises migrations, Postgres, pgTAP and RLS.
 GoTrue, Storage, PostgREST, Kong, Studio and Edge Runtime are not running there, so real JWT
 issuance, signed URLs and the Data API stay CI-only. CI is still authoritative (D1).
