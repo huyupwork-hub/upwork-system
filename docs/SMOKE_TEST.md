@@ -9,8 +9,9 @@ pgTAP suite proves RLS against real Postgres, but through `psql`, not through th
 app's client path. This test closes the remaining gap: the real client, a real
 JWT, real policies, two real users.
 
-**Status: not yet executed.** No hosted project exists (see D2). The CI job is
-opt-in and stays absent until it is configured, so it cannot sit red.
+**Status: passing.** 8/8 against a real hosted project — see [Verified](#verified)
+below. The job remains opt-in via `HOSTED_SMOKE`, so a fork or a fresh clone
+without the secrets skips it rather than failing.
 
 ## What it asserts
 
