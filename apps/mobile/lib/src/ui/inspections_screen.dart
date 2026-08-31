@@ -220,7 +220,9 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
               ? 'No inspections yet.\nTap + to create one.'
               : 'No inspections match "$_shownQuery".',
           key: Key(
-            _shownQuery.isEmpty ? 'inspections-empty' : 'inspections-no-matches',
+            _shownQuery.isEmpty
+                ? 'inspections-empty'
+                : 'inspections-no-matches',
           ),
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 17, color: AppColors.label2),
@@ -282,7 +284,8 @@ class _InspectionRow extends StatelessWidget {
                 children: [
                   Text(
                     inspection.siteName,
-                    style: const TextStyle(fontSize: 17, color: AppColors.label),
+                    style:
+                        const TextStyle(fontSize: 17, color: AppColors.label),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),

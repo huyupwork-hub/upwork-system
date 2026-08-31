@@ -105,10 +105,8 @@ class SupabaseInspectionsRepository implements InspectionsRepository {
     // RLS already restricts this to the caller's rows; the explicit eq() is
     // defence in depth and lets the planner use the inspector_id index rather
     // than filtering after the fact.
-    var builder = _client
-        .from('inspections')
-        .select(_columns)
-        .eq('inspector_id', userId);
+    var builder =
+        _client.from('inspections').select(_columns).eq('inspector_id', userId);
 
     if (tsQuery != null) {
       // Matched against the stored generated column and its GIN index, in the

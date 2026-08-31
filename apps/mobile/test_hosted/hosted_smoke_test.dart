@@ -569,7 +569,8 @@ void main() {
 
   test('27. search is case-insensitive and matches on a prefix', () async {
     expect(
-      (await inspectionsA.searchMine(searchTerm.toUpperCase())).map((r) => r.id),
+      (await inspectionsA.searchMine(searchTerm.toUpperCase()))
+          .map((r) => r.id),
       contains(histNewer!.id),
     );
     // Prefix: drop the last three characters of the unique token.

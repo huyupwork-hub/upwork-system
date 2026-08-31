@@ -29,7 +29,8 @@ void main() {
     test('tsquery operators in the input cannot compose an expression', () {
       // & | ! : ( ) are tsquery syntax. Passing them through would either error
       // or let the caller write their own query.
-      expect(InspectionSearch.toTsQuery('north & retail'), 'north:* & retail:*');
+      expect(
+          InspectionSearch.toTsQuery('north & retail'), 'north:* & retail:*');
       expect(InspectionSearch.toTsQuery('a | b'), 'a:* & b:*');
       expect(InspectionSearch.toTsQuery('!north'), 'north:*');
       expect(InspectionSearch.toTsQuery("o'brien"), 'o:* & brien:*');
@@ -70,16 +71,17 @@ void main() {
       String? address,
       String? client,
       InspectionStatus status = InspectionStatus.draft,
-    }) => Inspection(
-      id: id,
-      inspectorId: 'user-1',
-      siteName: site,
-      siteAddress: address,
-      clientName: client,
-      inspectionDate: date,
-      status: status,
-      createdAt: createdAt,
-    );
+    }) =>
+        Inspection(
+          id: id,
+          inspectorId: 'user-1',
+          siteName: site,
+          siteAddress: address,
+          clientName: client,
+          inspectionDate: date,
+          status: status,
+          createdAt: createdAt,
+        );
 
     setUp(() => repo = FakeInspectionsRepository());
 
@@ -95,8 +97,10 @@ void main() {
 
     test('created_at descending breaks a same-date tie', () async {
       repo.rows.addAll([
-        make('a', date: DateTime(2026, 8, 1), createdAt: DateTime(2026, 8, 1, 9)),
-        make('b', date: DateTime(2026, 8, 1), createdAt: DateTime(2026, 8, 1, 17)),
+        make('a',
+            date: DateTime(2026, 8, 1), createdAt: DateTime(2026, 8, 1, 9)),
+        make('b',
+            date: DateTime(2026, 8, 1), createdAt: DateTime(2026, 8, 1, 17)),
       ]);
       final rows = await repo.listMine();
       expect(rows.map((r) => r.id).toList(), ['b', 'a']);
