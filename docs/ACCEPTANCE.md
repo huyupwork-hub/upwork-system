@@ -51,11 +51,15 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| D1 | ☐ One or more photos attach to an item and upload to the private bucket. | Flutter integration test |
-| D2 | ☐ Objects are stored at `{inspector_id}/{inspection_id}/{item_id}/{photo_id}.{ext}`. | Storage path assertion |
-| D3 | ☐ Photos render from short-lived signed URLs, never a public URL. | Code review + no public bucket in migrations |
-| D4 | ☐ Uploads outside the caller's own prefix are rejected. | pgTAP storage-policy test |
-| D5 | ☐ Oversized (>10 MB) or non-image uploads are rejected. | pgTAP CHECK test |
+| D1 | ☑ One or more photos attach to an item and upload to the private bucket. | **Hosted smoke ✅ run `33392138378`** cases 15–16 — a real PNG through real Supabase Storage, metadata row persisted and read back |
+| D2 | ☑ Objects are stored at `{inspector_id}/{inspection_id}/{item_id}/{photo_id}.{ext}`, with the owner segment taken from the session. | Hosted smoke case 15 asserts the path starts with A's authenticated uid · `photo_workflow_test.dart` asserts all four segments |
+| D3 | ☑ Photos render from short-lived signed URLs, never a public URL. | **Hosted smoke case 17** the signed URL returns 200 · **case 18** the unsigned path does **not** — the bucket really is private · pgTAP `080` asserts `buckets.public = false` |
+| D4 | ☑ Uploads outside the caller's own prefix are rejected. | pgTAP `080` ✅ — cross-prefix and cross-owner-inspection uploads both raise `42501` · **hosted smoke case 20** B cannot upload under A's prefix through the real Storage API |
+| D5 | ☑ Oversized (>10 MB) or non-image uploads are rejected. | `photo_workflow_test.dart` rejects both before any bytes leave the device · the same limits are CHECK constraints on `item_photos` (pgTAP `050`) and on the bucket |
+| D6 | ☑ A submitted parent blocks photo mutation at the database, not only in the UI. | **Hosted smoke case 22** ✅ · pgTAP `070` (metadata) and `080` (storage object) both refuse under a submitted inspection (D17) |
+| D7 | ☑ Another inspector cannot read, sign, or delete an object, and the metadata cannot describe one they could not write. | **Hosted smoke case 19** ✅ — list, direct id, signed URL and delete all refused · pgTAP `080` |
+| D8 | ☑ Upload is object→metadata, and a failed metadata insert deletes the uploaded object (D19). | `photo_workflow_test.dart` ✅ run `33403013321` — forces the insert failure and asserts the bucket is left empty; also that the *original* error survives a failing compensation |
+| D9 | ☑ Delete is metadata→object, and a failed object delete surfaces without resurrecting the row (D19). | `photo_workflow_test.dart` ✅ — asserts the row stays deleted, the orphan is named in `PhotoCleanupException`, and a refused metadata delete leaves the object untouched |
 
 ## E. Offline drafts
 
@@ -122,7 +126,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | # | Criterion | Evidence |
 |---|---|---|
 | K1 | ☑ `flutter analyze --fatal-infos` reports zero issues. | CI run `606017a` ✅ |
-| K2 | ☑ Flutter unit + widget tests pass — **63 tests**, 0 failures. | CI run `33375863716` ✅ |
+| K2 | ☑ Flutter unit + widget tests pass — **92 tests**, 0 failures. | CI run `33403013321` ✅ |
 | K6 | ☑ `dart format --set-exit-if-changed` is clean. | CI run `606017a` ✅ |
 | K3 | ☑ pgTAP suite passes against a clean migration run. | CI run `d53d066` ✅ |
 | K4 | ☐ Admin lint, typecheck, and tests pass. | CI log |
@@ -132,7 +136,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| L1 | ☑ Android APK builds in CI and is uploaded as an artifact. | Run `33375863716` ✅ — `app-release.apk` **50.1 MB**, artifact `fieldproof-android-7d1fdf5…` 23,533,380 bytes |
+| L1 | ☑ Android APK builds in CI and is uploaded as an artifact. | Run `33403013321` ✅ — `app-release.apk` **51.0 MB**, artifact `fieldproof-android-98b3b1f…` 23,940,248 bytes |
 | L2 | ◐ iOS build verification runs on a macOS runner (no signing required). | **Pending — macOS-only, no execution path.** Passed once on `macos-latest`: run `33351235214`, 1m52s, at `c796b6f`. Not re-verified at HEAD. Moved out of main CI to `.github/workflows/ios.yml`, manual dispatch only (D15) |
 | L3 | ☐ The admin production build succeeds. | CI log |
 | L4 | ☑ Migrations apply cleanly from empty to head. | CI run `d53d066` ✅ |
@@ -358,3 +362,61 @@ mechanism:
   testing what it named. Split in two: the cross-owner case asserts the RLS refusal
   it really triggers, and a new case proves the FK using two drafts the caller owns,
   where only the key can reject it.
+
+---
+
+## Slice complete — Photos
+
+**Status: complete.** Attach → private Storage → metadata → display → delete,
+evidenced against a real hosted Supabase project.
+
+**Run [`33403013321`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33403013321) at `98b3b1f` — every job green:**
+
+| Gate | Result |
+|---|---|
+| Detect slices · Secret hygiene | ✅ |
+| Mobile (Flutter) | ✅ 19m42s — format 0 changed, analyze **no issues**, **92 tests**, APK **51.0 MB** |
+| Database + RLS | ✅ 1m41s — pgTAP `010`–`080` |
+| Hosted Supabase smoke | ✅ 8m01s — **23/23** |
+
+Artifact `fieldproof-android-98b3b1f…`, 23,940,248 bytes.
+
+### Ownership is enforced twice, and both halves are proven
+
+A photo is only safe if the metadata row *and* the object agree. Either alone
+would be a hole:
+
+| | Metadata (`item_photos`) | Storage object |
+|---|---|---|
+| Owner | via parent inspection — pgTAP `060` | path segment `[1]` vs `auth.uid()` — pgTAP `080` |
+| Draft-only | pgTAP `070` | pgTAP `080` |
+| Cross-owner | hosted smoke 19 | hosted smoke 19–20 |
+
+### Failure integrity (D19)
+
+Upload is object→metadata with a compensating object delete; delete is
+metadata→object with `PhotoCleanupException` and no resurrection of the row.
+`photo_workflow_test.dart` forces both failure modes directly — that is what the
+two ports exist for, and it is the reason the ordering is evidence rather than
+intention.
+
+### Boundaries kept
+
+No image editing, annotation, backend thumbnails, CDN work, photo reordering,
+offline queue, or PDF. The whole "compression pipeline" is a capture-time size
+cap (2048px, quality 85) so a phone photo does not arrive at 8 MB and get
+rejected after the user has waited for it.
+
+### Not covered by any automated test
+
+Real camera capture. `image_picker` sits behind `PhotoSource` so the widget
+tests drive a fake; capture on a physical device is Android build/device
+evidence (D20), and no host-side test can stand in for it.
+
+### One thing this slice caught that was not about photos
+
+Hosted smoke cases 22–23 failed initially because migration
+`20260831000500_submitted_immutable.sql` had never been applied to the hosted
+project — D17 was enforced in CI but not in the live database. `supabase db push`
+fixed it, and those two cases are now a permanent schema-drift detector: any
+future migration that is not pushed fails here rather than passing unnoticed.
