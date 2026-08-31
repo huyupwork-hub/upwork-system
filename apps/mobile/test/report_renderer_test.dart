@@ -122,8 +122,8 @@ void main() {
             reportItem(
               1,
               photos: [
-                ReportPhoto.available(
-                  const ItemPhoto(
+                const ReportPhoto.available(
+                  ItemPhoto(
                     id: 'p1',
                     itemId: 'item-1',
                     inspectionId: 'a0000000-0000-4000-8000-000000000002',
