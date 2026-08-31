@@ -98,9 +98,9 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| H1 | ◐ An inspector sees only their own inspections, newest first. | **Isolation ☑** — pgTAP `020` plus hosted smoke assertion 6 (run `33366465489`), so it holds through the app's own client path. **Ordering still ◐**: `newest first` is asserted only in a widget test against a fake; the smoke run creates a single row and cannot prove ordering |
-| H2 | ☐ Search matches on site name, address, and client. | Test over the GIN index |
-| H3 | ☐ Search returns no other inspector's rows. | pgTAP |
+| H1 | ☑ An inspector sees only their own inspections, newest first, in a deterministic order. | **Isolation** — pgTAP `020` plus hosted smoke assertions 6–8. **Ordering** — hosted smoke **case 25** (run `33446869242`) creates two rows dated 2020-06-01 and 2020-01-01 through the app's own client and asserts the newer precedes the older, then walks the whole list asserting it never ascends, so ordering is a property of the query and not of two rows. pgTAP `090` asserts the same `inspection_date DESC` over seeded data. **Determinism** — the order is total: `search_test.dart` seeds three rows sharing one date with no timestamps and asserts two successive calls return the identical sequence, which the `created_at DESC, id DESC` tiebreak is what makes true; pgTAP `090` inserts two same-date rows in one transaction and asserts the id tiebreak resolves them |
+| H2 | ☑ Search matches on site name, address, and client. | pgTAP `090` — separate assertions for site (`northgate:*`), address (`dock:*`) and client (`meridian:*`) against the stored `search_tsv` and its GIN index, plus case-insensitivity, prefix matching, and both lifecycle states searchable. Hosted smoke **case 26** proves all three field kinds end to end against the real project, and **case 27** case-insensitivity and prefix. Client side, `search_test.dart` pins the tsquery the app sends (terms lowercased, ANDed, each `:*`-suffixed, tsquery operators in user input neutralised) and `search_flow_test.dart` drives it through the widget tree |
+| H3 | ☑ Search returns no other inspector's rows. | pgTAP `090` — B's inspection carries three terms appearing nowhere in A's rows (`riverside`, `ashcroft`, `sheffield`); A searching each finds nothing, B searching A's unique term finds nothing, and no query returns a row whose `inspector_id` is not the caller's. `anon` is refused `42501`, so search is not a way around the unauthenticated denial. Hosted smoke **case 28** proves it both directions against the real project using per-run unique tokens, so a stale fixture cannot make it pass. Search is an ordinary `SELECT`, so this is RLS doing the work — the client sends no `inspector_id` |
 
 ## I. Admin dashboard
 
@@ -131,7 +131,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | # | Criterion | Evidence |
 |---|---|---|
 | K1 | ☑ `flutter analyze --fatal-infos` reports zero issues. | CI run `606017a` ✅ |
-| K2 | ☑ Flutter unit + widget tests pass — **124 tests**, 0 failures. | CI run `33432719089` ✅ |
+| K2 | ☑ Flutter unit + widget tests pass — **153 tests**, 0 failures. | CI run `33446869242` ✅ |
 | K6 | ☑ `dart format --set-exit-if-changed` is clean. | CI run `606017a` ✅ |
 | K3 | ☑ pgTAP suite passes against a clean migration run. | CI run `d53d066` ✅ |
 | K4 | ☐ Admin lint, typecheck, and tests pass. | CI log |
@@ -141,7 +141,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| L1 | ☑ Android APK builds in CI and is uploaded as an artifact. | Run `33432719089` ✅ — `app-release.apk` **56.1 MB**, artifact `fieldproof-android-a368d8c…` 26,145,689 bytes |
+| L1 | ☑ Android APK builds in CI and is uploaded as an artifact. | Run `33446869242` ✅ — `app-release.apk` **56.2 MB**, artifact `fieldproof-android-656dfbb…` 26,170,704 bytes |
 | L2 | ◐ iOS build verification runs on a macOS runner (no signing required). | **Pending — macOS-only, no execution path.** Passed once on `macos-latest`: run `33351235214`, 1m52s, at `c796b6f`. Not re-verified at HEAD. Moved out of main CI to `.github/workflows/ios.yml`, manual dispatch only (D15) |
 | L3 | ☐ The admin production build succeeds. | CI log |
 | L4 | ☑ Migrations apply cleanly from empty to head. | CI run `d53d066` ✅ |
@@ -272,11 +272,12 @@ are not:
 - **A3** — sign-out routing is proven by widget test, but the hosted smoke calls
   `signOut()` in teardown without asserting on it, so real session teardown is
   unverified.
-- **H1 (ordering)** — "only their own" is proven end to end; "newest first" is
-  not. The smoke run creates a single row, so it cannot demonstrate ordering.
+- **H1 (ordering)** — *closed by the search slice.* Hosted smoke case 25 now
+  creates two rows with known, different dates and asserts the order through the
+  app's own client; see H1 above.
 
-Both are honest gaps in an otherwise complete slice, not blockers for the next
-one. Neither is claimed as evidence anywhere.
+A3 remains an honest gap in an otherwise complete slice, not a blocker for the
+next one. It is not claimed as evidence anywhere.
 
 ### Not part of this slice
 
@@ -479,3 +480,61 @@ was withdrawn in favour of aborting generation (D21): a document that shows a
 placeholder where evidence should be still reads as complete to whoever receives
 it. One transient fetch failure now blocks the whole report — the accepted cost
 of a document that is either complete or absent.
+
+---
+
+## Slice complete — Inspection History → Search → deterministic ordering
+
+**Status: complete.** Run
+[`33446869242`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33446869242)
+at `656dfbb` — one run, every gate green:
+
+| Gate | Result |
+|---|---|
+| Formatting | ✅ `Formatted 35 files (0 changed)` |
+| Analyze | ✅ `No issues found!` (`--fatal-infos`) |
+| Flutter tests | ✅ **153 passed**, 0 failed |
+| Android release APK | ✅ 56.2 MB, artifact `fieldproof-android-656dfbb…` (26,170,704 bytes) |
+| Database + RLS | ✅ pgTAP `010`–`090`, Files=9 Tests=165, `Result: PASS` |
+| Hosted Supabase smoke | ✅ **29/29**, including cases 24–29 |
+
+### Search runs in the database, not in the client
+
+`InspectionsRepository` gained `searchMine`, and one private `_query` builds both
+history and search, so the two cannot drift in ordering or in column selection. A
+query becomes a `textSearch` against the stored `search_tsv` and its existing GIN
+index — no migration was added, because `inspections_search_idx` was already
+there from the initial schema. Nothing is fetched-then-filtered, and the client
+sends no `inspector_id`: ownership stays RLS's job, which is what makes H3
+provable rather than asserted.
+
+### The ordering is total, not merely descending
+
+`inspection_date DESC, created_at DESC, id DESC`. The final key is the point:
+two inspections created on the same date in one transaction would otherwise come
+back in either order between calls. pgTAP `090` inserts exactly that pair and
+asserts the tiebreak resolves it; `search_test.dart` asserts two successive calls
+return the identical sequence.
+
+### Staleness is handled by a token, not a framework
+
+Each load takes the next value of a monotonic counter and applies its result only
+if it is still the newest. Two widget tests cover it, including the sharper case
+where the *stale* query matches more rows than the current one — the case a
+naive test misses, because there the stale response would visibly resurrect
+filtered-out rows rather than merely flicker.
+
+### What the existing tests caught
+
+Adding the search box broke four assertions in `app_flow_test.dart`.
+`CupertinoSearchTextField` builds a `CupertinoTextField`, and the inspections
+screen stays mounted beneath the modal sheet, so an unscoped
+`find.byType(CupertinoTextField)` went from three matches to four and `.at(0)`
+became the search box. The fix scoped those finders to `NewInspectionSheet`,
+which strengthens the assertion — "the sheet offers exactly the schema fields"
+now asserts what its comment always claimed. Relaxing the count to four was the
+available weakening fix and was not taken.
+
+### Not part of this slice
+
+Offline drafts and sync, real-device QA, and the admin dashboard remain ☐.
