@@ -132,13 +132,19 @@ grep -o -E 'avx2?|sse4_2|popcnt' /proc/cpuinfo | sort -u     # Westmere: sse4_2,
 
 | Check | Result |
 |---|---|
-| All four migrations execute against a real Postgres engine | ✅ 4/4 clean — PGlite (Postgres/WASM) under Node |
+| All four migrations apply against a real Postgres engine | ✅ `supabase/postgres:15.8.1.085`, three times (start, `--no-seed` reset, seeded reset) |
+| Migrations apply from empty to head, unseeded (L4) | ✅ on the service box |
 | RLS posture: enabled + forced on all four tables | ✅ confirmed |
 | Policy inventory | ✅ 23 policies (18 application, 5 storage), no admin write policy |
-| Behavioural RLS run: role switching across inspector A, inspector B, admin, anon | ✅ 25/25 assertions |
-| pgTAP suite executed | ❌ **not yet** — needs CI or a local Docker stack |
-| CI green | ❌ **not yet** — no GitHub remote |
+| pgTAP suite executed | ✅ 5 files on the service box — first run 91/92, the one failure a wrong assertion in 010 (fixed in 620f2cc), suite green after |
+| Suite is repeatable (K5) | ❔ **not yet observed** — the first run aborted at the pgTAP step, before it |
+| CI green | ❔ **not confirmed here** — a remote now exists; the Actions run is the authoritative record |
 
-The PGlite run was a pre-CI smoke check against stand-ins for the Supabase-managed `auth`
-and `storage` schemas. It is not a substitute for `supabase test db`, and its harness is
-not committed. No criterion in `ACCEPTANCE.md` is marked met on the strength of it.
+Executed by `./scripts/db-verify.sh` on the T410s service box: Postgres only, no Realtime
+(D11). The `auth` and `storage` schemas came from the CLI's startup migration jobs, so the
+storage policies in `20260831000400_storage.sql` were exercised for real, not against
+stand-ins. This supersedes the earlier PGlite smoke check, whose harness was never committed.
+
+Note what this does **not** establish: no service on that box issues a real JWT, signs a
+storage URL, or serves the Data API. `request.jwt.claims` is set directly by the test files.
+Those paths remain CI-only (D1, D11).

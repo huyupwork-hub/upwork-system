@@ -1,8 +1,9 @@
 -- Structural and security-posture assertions.
 --
--- no_plan() rather than plan(N): the suite cannot be executed on the development machine
--- (no Docker/Postgres — see D1), so a hand-counted plan would risk failing CI for an
--- off-by-one rather than for a real defect. Every assertion below still fails loudly.
+-- no_plan() rather than plan(N): these files are authored on a machine with no Postgres
+-- (D1) and executed elsewhere — CI, or the service box via ./scripts/db-verify.sh (D11).
+-- A hand-counted plan would add an off-by-one failure mode for no benefit; every
+-- assertion below still fails loudly on its own.
 
 begin;
 create extension if not exists pgtap with schema extensions;
