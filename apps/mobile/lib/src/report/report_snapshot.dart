@@ -104,7 +104,6 @@ class InspectionNotSubmittedException implements Exception {
       'Only a submitted inspection can produce a report. Submit it first.';
 }
 
-
 /// A photo the report needs could not be fetched.
 ///
 /// Generation stops. The alternative — rendering a placeholder — produces a

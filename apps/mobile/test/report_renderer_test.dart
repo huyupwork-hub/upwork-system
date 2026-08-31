@@ -146,7 +146,6 @@ void main() {
       // The image has to land in the document, so it must be materially bigger.
       expect(withPhoto.length, greaterThan(withoutPhoto.length));
     });
-
   });
 
   group('multipage', () {
