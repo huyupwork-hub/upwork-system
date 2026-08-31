@@ -31,6 +31,8 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | B3 | ☐ An inspector can edit and delete their own inspection. | Flutter test |
 | B4 | ☑ Deleting an inspection cascades to its items and photo rows. | CI run `d53d066` ✅ |
 | B5 | ☑ A submitted inspection cannot be returned to draft (D10), and `submitted_at` is stamped automatically. | CI run `d53d066` ✅ |
+| B6 | ☑ **A submitted inspection is immutable (D17)**: its owner cannot edit or delete it. | pgTAP `070` ✅ run `33384740243` — silent zero-row denial, verified against the data |
+| B7 | ☑ Drafts are unaffected, and a draft can still be submitted. | pgTAP `070` ✅ — edit, add item, submit, then immutable from that moment |
 
 ## C. Punch-list items
 
@@ -42,6 +44,8 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | C4 | ☑ An item can be resolved **and reopened** — the transition is not one-way. | **Hosted smoke ✅ run `33375863716`** assertion 12 · pgTAP `060` |
 | C5 | ☑ Item ownership derives through the parent inspection: another inspector cannot read, create, update or delete items under it. | **Hosted smoke ✅** assertions 13–14 · pgTAP `060` both directions, including the silent zero-row denial |
 | C6 | ☑ The client rejects Figma's enum vocabulary rather than silently accepting it. | `item_models_test.dart` — `minor`, `major`, `in-review` all raise; `constraint_parity_test.dart` reads both enums from the migration |
+| C7 | ☑ Items under a submitted inspection cannot be created, edited, resolved/reopened, or deleted (D17). | pgTAP `070` ✅ run `33384740243` — INSERT raises `42501`; UPDATE/DELETE deny silently and the data is re-read to prove it |
+| C8 | ☑ The app presents a submitted inspection as read-only: no add affordance, rows inert, reason stated. | Widget tests in `item_flow_test.dart` ✅ run `33384740243` — presentation only; the database is the enforcement |
 
 ## D. Photos
 
@@ -308,3 +312,49 @@ at `7d1fdf5` — every job green:**
   Reporting it as success is the exact failure `020`/`060` test for.
 - **C2 (reordering) is not implemented** and stays ☐. `sort_order` is assigned on
   append only.
+
+---
+
+## Integrity gate complete — submitted inspections are immutable (D17)
+
+**Run [`33384740243`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33384740243) — every job green.**
+
+| Gate | Result |
+|---|---|
+| Detect slices · Secret hygiene | ✅ |
+| Database + RLS | ✅ pgTAP `010`–`070` |
+| Mobile (Flutter) | ✅ **67 tests**, APK **50.1 MB** |
+| Hosted Supabase smoke | ✅ 15/15 |
+
+Enforced in `20260831000500_submitted_immutable.sql`, **in the database**. Every
+write policy on `inspections`, `inspection_items`, `item_photos` and the storage
+bucket now requires the governing inspection to be `draft`.
+
+### What `070` actually proves
+
+| | |
+|---|---|
+| Still readable | owner reads the submitted inspection, its 2 items, its photo |
+| Inspection frozen | edit and delete both deny silently; data re-read unchanged |
+| Items frozen | INSERT raises `42501`; edit, resolve and delete deny silently |
+| Photos frozen | INSERT raises `42501`; delete denies silently |
+| Drafts unaffected | edit applies, item adds, **and the draft can still be submitted** |
+| Immediate | the freshly submitted inspection is frozen from that moment |
+| Admin unchanged | D3 still holds — admins still read submitted work |
+
+The draft-unaffected cases matter as much as the frozen ones: a gate that also
+froze drafts would make the app unusable, and those assertions would catch it.
+
+### Two existing tests had to change, and why
+
+Neither was weakened — both were asserting something that is no longer the
+mechanism:
+
+- **`050` un-submit** expected D10's trigger exception (`23514`). RLS now refuses
+  first, so the update matches zero rows and raises nothing. The assertion is now
+  about the resulting data, which is the stronger claim anyway.
+- **`050` composite FK (D8)** proved the key by claiming a *submitted* inspection.
+  D17 refuses that with `42501` before the FK is consulted, so the test had stopped
+  testing what it named. Split in two: the cross-owner case asserts the RLS refusal
+  it really triggers, and a new case proves the FK using two drafts the caller owns,
+  where only the key can reject it.
