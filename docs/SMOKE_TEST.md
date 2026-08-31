@@ -105,3 +105,42 @@ out of shell history.
   network-dependent test in the main suite would make K5 a lie.
 - **Credentials via environment, not `--dart-define`.** Defines appear in the
   process command line and in CI step echoes.
+
+---
+
+## Verified
+
+**Run [`33366465489`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33366465489),
+job `99408198600`, at `5366a8f` — 8/8 assertions passed** against a real hosted
+Supabase project:
+
+```
+00:01 +0: 1. user A authenticates with ordinary Supabase Auth
+00:02 +1: 2. user A profile exists via the trigger bootstrap path
+00:03 +2: 3. user A creates a draft through the app repository path
+00:03 +3: 4. user A reads it back
+00:03 +4: 5. stored inspector_id is user A
+00:03 +5: 6. user B cannot read user A draft
+00:04 +6: 7. user B cannot update or delete user A draft
+00:04 +7: 8. user B cannot create an inspection owned by user A
+00:05 +8: All tests passed!
+```
+
+The round trip itself takes ~5 seconds; the job's 7m4s is Flutter setup and
+`pub get` on the service box.
+
+## Running it without rebuilding the APK
+
+The smoke test is defined once, in `.github/workflows/hosted-smoke.yml`, with two
+entry points:
+
+- **`workflow_dispatch`** — run it alone. No Mobile job, no Gradle, no APK.
+  ```bash
+  gh workflow run "Hosted Supabase smoke test" --repo <owner>/<repo>
+  ```
+- **`workflow_call`** — `ci.yml` invokes the same file, so a full push run still
+  includes it.
+
+`ci.yml`'s `hosted-smoke` job needs only `detect`, never `mobile`, so it does not
+depend on the APK even inside a full run. On a single self-hosted runner the jobs
+still execute serially — deliberately, since the box has 5.6 GB of RAM.

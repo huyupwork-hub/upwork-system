@@ -1,0 +1,48 @@
+name: Hosted Supabase smoke test
+
+# Two entry points, one definition:
+#
+#   workflow_dispatch — run the smoke test on its own, without building an APK.
+#                       A 16-minute Gradle build to re-check a 5-second round
+#                       trip is not a reasonable feedback loop.
+#   workflow_call     — invoked by ci.yml so a full push run still includes it.
+#
+# The test itself lives in apps/mobile/test_hosted/hosted_smoke_test.dart and is
+# not duplicated anywhere. Requires the six secrets in docs/SMOKE_TEST.md.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Sign in -> create -> read back -> isolation
+    runs-on: [self-hosted, Linux, X64]
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+
+      # test_hosted/ sits outside test/, so the hermetic suite never picks it up
+      # and `flutter test` stays deterministic (K5).
+      #
+      # Credentials arrive as environment variables rather than --dart-define:
+      # defines land in the process command line and in the step echo, env does not.
+      - name: Hosted round trip
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SMOKE_USER_A_EMAIL: ${{ secrets.SMOKE_USER_A_EMAIL }}
+          SMOKE_USER_A_PASSWORD: ${{ secrets.SMOKE_USER_A_PASSWORD }}
+          SMOKE_USER_B_EMAIL: ${{ secrets.SMOKE_USER_B_EMAIL }}
+          SMOKE_USER_B_PASSWORD: ${{ secrets.SMOKE_USER_B_PASSWORD }}
+        run: flutter test test_hosted/ --reporter expanded

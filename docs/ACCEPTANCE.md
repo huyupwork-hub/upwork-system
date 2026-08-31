@@ -16,9 +16,9 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| A1 | ◐ An existing user signs in with email + password. **Sign-up is out of V1 scope (D13)** — accounts come from the dashboard or seed. | Widget test ✅ run `606017a`, but against a **fake** auth repository. Real Supabase sign-in unverified |
-| A2 | ☐ A `profiles` row with role `inspector` is created automatically on signup. | pgTAP: profile exists after `auth.users` insert |
-| A3 | ◐ Sign-out clears the session; the protected screen unmounts and sign-in returns. | Widget test ✅ run `606017a` proves the routing; real session teardown unverified |
+| A1 | ☑ An existing user signs in with email + password. **Sign-up is out of V1 scope (D13)** — accounts come from the dashboard or seed. | **Hosted smoke ✅ run `33366465489`** assertion 1 — real Supabase Auth, real JWT |
+| A2 | ☑ A `profiles` row with role `inspector` is created automatically on signup. | **Hosted smoke ✅ run `33366465489`** assertion 2 — row created by the `on_auth_user_created` trigger, role `inspector`, read through `SupabaseProfileRepository` |
+| A3 | ◐ Sign-out clears the session; the protected screen unmounts and sign-in returns. | Widget test ✅ run `606017a` proves the routing. The hosted smoke calls `signOut()` in teardown but asserts nothing about it, so real session teardown remains unverified |
 | A4 | ☑ An unauthenticated client is refused by every application table (raises `42501`; stricter than returning zero rows). | CI run `d53d066` ✅ |
 | A5 | ☑ A user cannot escalate their own role to `admin`, but can still rename themselves. | CI run `d53d066` ✅ |
 
@@ -26,7 +26,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| B1 | ◐ An inspector creates an inspection with site name, address, client, and date. | Widget test vs. a **fake** repository — true end-to-end needs a live Supabase project |
+| B1 | ☑ An inspector creates an inspection with site name, address, client, and date. | **Hosted smoke ✅ run `33366465489`** assertions 3–5 — created through `SupabaseInspectionsRepository`, read back via `listMine()`, and `inspector_id` re-read from the server equals the authenticated uid |
 | B2 | ☑ Required-field and length constraints reject invalid input at the database, not only in the UI. | CI run `d53d066` ✅ |
 | B3 | ☐ An inspector can edit and delete their own inspection. | Flutter test |
 | B4 | ☑ Deleting an inspection cascades to its items and photo rows. | CI run `d53d066` ✅ |
@@ -82,7 +82,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| H1 | ◐ An inspector sees only their own inspections, newest first. | Ordering: widget test. Isolation: pgTAP `020` ✅ |
+| H1 | ◐ An inspector sees only their own inspections, newest first. | **Isolation ☑** — pgTAP `020` plus hosted smoke assertion 6 (run `33366465489`), so it holds through the app's own client path. **Ordering still ◐**: `newest first` is asserted only in a widget test against a fake; the smoke run creates a single row and cannot prove ordering |
 | H2 | ☐ Search matches on site name, address, and client. | Test over the GIN index |
 | H3 | ☐ Search returns no other inspector's rows. | pgTAP |
 
@@ -107,6 +107,8 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | J3 | ☑ Inspector A cannot read or mutate inspector B's data at any level of the chain — both the raising and the silent-denial shapes. | CI run `d53d066` ✅ |
 | J4 | ☑ No policy grants unrestricted `authenticated` CRUD (no bare `true` qualifier). | CI run `d53d066` ✅ |
 | J5 | ☑ No secret is committed. | CI run `d53d066` ✅ |
+| J6 | ☑ Cross-user isolation holds through the **app's own authenticated client path**, not only through `psql`. | **Hosted smoke ✅ run `33366465489`** assertions 6–8 against a real hosted project: user B cannot read A's draft (by list or by direct id), cannot update or delete it (verified against the data afterwards, since RLS denies silently), and cannot insert a row owned by A (raises) |
+| J7 | ☑ The smoke suite refuses to run under a privileged key. | `_assertNotPrivileged` decodes the JWT and requires `role: anon`, rejecting `sb_secret_` keys — otherwise J6 would pass while proving nothing |
 
 ## K. Tests
 
