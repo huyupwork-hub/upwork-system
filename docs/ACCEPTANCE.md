@@ -174,23 +174,24 @@ development machine (D1), so none of it could be run locally either.
 
 ---
 
-## CI verification status — run `606017a` (self-hosted T410s)
+## CI verification status — run `33355639632` at `2decd50` (self-hosted T410s)
 
 | Gate | Result |
 |---|---|
-| Secret hygiene | ✅ 22s |
-| Detect slices | ✅ 19s |
+| Detect slices | ✅ 17s |
+| Secret hygiene | ✅ 17s |
 | `dart format --set-exit-if-changed` | ✅ |
 | `flutter analyze --fatal-infos` | ✅ zero issues |
 | `flutter test` | ✅ **28 passed, 0 failed** |
 | Generate Android scaffolding | ✅ |
+| **Database + RLS** | ✅ **1m44s** |
 | Build release APK | ❌ `No Android SDK found` — runner not provisioned |
-| Database + RLS | ❌ disk guard: 2.3 G free on `/var/lib/docker`, needs 5 G |
 | iOS build verification | ❌ job refused — GitHub billing (only `macos-latest` job) |
 
-All three failures are **environmental, not code**. No gate was weakened or
-skipped to reach this state, and the two that fail still fail loudly.
+Both remaining failures are **environmental, not code**. No gate was weakened or
+skipped, and both still fail loudly.
 
-The database gate last passed on run `d53d066` (GitHub-hosted); the current
-failure is `db-verify.sh`'s own disk fail-fast, which is the guard working as
-designed, not a regression in the suite.
+The database gate now passes on the service box. Its earlier failure was
+`db-verify.sh`'s own disk fail-fast — the guard working as designed, not a
+regression — and was resolved by giving Docker a dedicated 126 GB partition
+reclaimed from two unused NTFS partitions, rather than by lowering the floor.
