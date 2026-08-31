@@ -38,3 +38,8 @@ apps/mobile/coverage/
 # Xcode.app was extracted into this directory by accident (12 GB). Ignored so it
 # can never be staged; it should be moved out of the repo entirely.
 /Xcode.app/
+
+# Self-hosted GitHub Actions runner. On the service box it lives inside this
+# directory. Never commit it: ~3.7 GB of toolcache, and .credentials holds the
+# runner's auth token.
+/actions-runner/
