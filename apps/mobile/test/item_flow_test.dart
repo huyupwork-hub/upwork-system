@@ -82,7 +82,10 @@ void main() {
   }
 
   Future<void> save(WidgetTester tester) async {
-    await tester.tap(find.byKey(const Key('save-item-button')));
+    final saveButton = find.byKey(const Key('save-item-button'));
+    await tester.ensureVisible(saveButton);
+    await tester.pumpAndSettle();
+    await tester.tap(saveButton);
     await tester.pumpAndSettle();
   }
 
@@ -283,6 +286,10 @@ void main() {
 
       expect(find.byType(ItemEditorSheet), findsOneWidget);
       expect(find.text('Edit Item'), findsOneWidget);
+      // Scrolled into view because the sheet's ListView builds lazily and the
+      // Photos section pushes the action buttons past the viewport.
+      await tester.ensureVisible(find.byKey(const Key('delete-item-button')));
+      await tester.pumpAndSettle();
       expect(find.byKey(const Key('delete-item-button')), findsOneWidget);
     });
 
@@ -330,7 +337,10 @@ void main() {
       await tester.tap(find.text('Fire door does not latch'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('delete-item-button')));
+      final deleteButton = find.byKey(const Key('delete-item-button'));
+      await tester.ensureVisible(deleteButton);
+      await tester.pumpAndSettle();
+      await tester.tap(deleteButton);
       await tester.pumpAndSettle();
       await tester
           .tap(find.widgetWithText(CupertinoActionSheetAction, 'Delete'));
@@ -347,7 +357,10 @@ void main() {
       await tester.tap(find.text('Fire door does not latch'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('delete-item-button')));
+      final deleteButton = find.byKey(const Key('delete-item-button'));
+      await tester.ensureVisible(deleteButton);
+      await tester.pumpAndSettle();
+      await tester.tap(deleteButton);
       await tester.pumpAndSettle();
       await tester
           .tap(find.widgetWithText(CupertinoActionSheetAction, 'Cancel'));
