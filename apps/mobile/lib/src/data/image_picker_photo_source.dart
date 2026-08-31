@@ -12,7 +12,7 @@ import 'repositories.dart';
 
 class ImagePickerPhotoSource implements PhotoSource {
   ImagePickerPhotoSource({ImagePicker? picker})
-    : _picker = picker ?? ImagePicker();
+      : _picker = picker ?? ImagePicker();
 
   final ImagePicker _picker;
 

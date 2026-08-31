@@ -41,7 +41,8 @@ void main() {
       expect(photo.byteSize, 3);
     });
 
-    test('the path derives from the session, not from any caller input', () async {
+    test('the path derives from the session, not from any caller input',
+        () async {
       final photo = await workflow.upload(
         inspectionId: 'insp-1',
         itemId: 'item-1',
@@ -51,7 +52,8 @@ void main() {
       // {inspector}/{inspection}/{item}/{photo}.{ext}
       final parts = photo.storagePath.split('/');
       expect(parts, hasLength(4));
-      expect(parts[0], 'user-a', reason: 'owner segment comes from the session');
+      expect(parts[0], 'user-a',
+          reason: 'owner segment comes from the session');
       expect(parts[1], 'insp-1');
       expect(parts[2], 'item-1');
       expect(parts[3], endsWith('.jpg'));

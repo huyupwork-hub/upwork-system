@@ -212,9 +212,7 @@ class SupabaseObjectStore implements PhotoObjectStore {
 
   @override
   Future<void> put(String path, List<int> bytes, String contentType) async {
-    await _client.storage
-        .from(bucket)
-        .uploadBinary(
+    await _client.storage.from(bucket).uploadBinary(
           path,
           Uint8List.fromList(bytes),
           fileOptions: FileOptions(contentType: contentType),

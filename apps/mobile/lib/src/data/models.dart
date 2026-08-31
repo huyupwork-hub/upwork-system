@@ -355,17 +355,17 @@ class ItemPhoto {
   final DateTime? createdAt;
 
   factory ItemPhoto.fromRow(Map<String, dynamic> row) => ItemPhoto(
-    id: row['id'] as String,
-    itemId: row['item_id'] as String,
-    inspectionId: row['inspection_id'] as String,
-    storagePath: row['storage_path'] as String,
-    contentType: row['content_type'] as String,
-    byteSize: (row['byte_size'] as num).toInt(),
-    caption: row['caption'] as String?,
-    createdAt: row['created_at'] == null
-        ? null
-        : DateTime.parse(row['created_at'] as String),
-  );
+        id: row['id'] as String,
+        itemId: row['item_id'] as String,
+        inspectionId: row['inspection_id'] as String,
+        storagePath: row['storage_path'] as String,
+        contentType: row['content_type'] as String,
+        byteSize: (row['byte_size'] as num).toInt(),
+        caption: row['caption'] as String?,
+        createdAt: row['created_at'] == null
+            ? null
+            : DateTime.parse(row['created_at'] as String),
+      );
 }
 
 /// Bytes handed back by a [PhotoSource], before anything has been uploaded.
@@ -384,11 +384,12 @@ class CapturedPhoto {
   /// filename a picker reports — a caller-supplied name must not decide where
   /// the object lands.
   String get extension => switch (contentType) {
-    'image/jpeg' => 'jpg',
-    'image/png' => 'png',
-    'image/webp' => 'webp',
-    _ => throw ArgumentError.value(contentType, 'contentType', 'unsupported'),
-  };
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        _ =>
+          throw ArgumentError.value(contentType, 'contentType', 'unsupported'),
+      };
 }
 
 /// Mirrors the `item_photos` CHECK constraints, and the bucket's own limits.
@@ -428,5 +429,6 @@ class PhotoLimits {
     required String itemId,
     required String photoId,
     required String extension,
-  }) => '$inspectorId/$inspectionId/$itemId/$photoId.$extension';
+  }) =>
+      '$inspectorId/$inspectionId/$itemId/$photoId.$extension';
 }

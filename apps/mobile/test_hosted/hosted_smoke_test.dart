@@ -410,10 +410,8 @@ void main() {
     final visible = await photosB.listFor(item!.id);
     expect(visible, isEmpty, reason: 'B cannot list A photo metadata');
 
-    final byId = await clientB
-        .from('item_photos')
-        .select('id')
-        .eq('id', photo!.id);
+    final byId =
+        await clientB.from('item_photos').select('id').eq('id', photo!.id);
     expect(byId, isEmpty, reason: 'nor read the row by direct id');
 
     // Storage refuses too, so neither half alone is load-bearing.
@@ -429,18 +427,14 @@ void main() {
       throwsA(isA<NotPermittedException>()),
     );
 
-    final after = await clientA
-        .from('item_photos')
-        .select('id')
-        .eq('id', photo!.id);
+    final after =
+        await clientA.from('item_photos').select('id').eq('id', photo!.id);
     expect(after, hasLength(1), reason: 'B must not have deleted it');
   });
 
   test('20. user B cannot upload under user A prefix', () async {
     await expectLater(
-      clientB.storage
-          .from(SupabaseObjectStore.bucket)
-          .uploadBinary(
+      clientB.storage.from(SupabaseObjectStore.bucket).uploadBinary(
             '$userAId/${created!.id}/${item!.id}/forged.png',
             Uint8List.fromList(_tinyPng),
           ),
@@ -469,8 +463,7 @@ void main() {
     // Submit, then attempt to attach. D17 must refuse at the database.
     await clientA
         .from('inspections')
-        .update({'status': 'submitted'})
-        .eq('id', created!.id);
+        .update({'status': 'submitted'}).eq('id', created!.id);
 
     final status = await clientA
         .from('inspections')

@@ -81,19 +81,19 @@ select is(
   'inspector B cannot list inspector A''s objects'
 );
 
--- Denied silently by matching nothing, as ever.
-select lives_ok(
-  $$delete from storage.objects
-    where bucket_id = 'inspection-photos' and name like '11111111%'$$,
-  'B deleting A''s object does not raise'
-);
-
+-- Deletion cannot be asserted here at all: Supabase installs
+-- storage.protect_delete(), which refuses any direct SQL DELETE from
+-- storage.objects and tells you to use the Storage API. So the delete PATH is
+-- proven by the hosted smoke test (case 21), which goes through that API, and
+-- what this file can assert is the SHAPE of the policy that guards it.
 reset role;
+
 select is(
-  (select count(*)::int from storage.objects
-   where bucket_id = 'inspection-photos' and name like '11111111%'),
+  (select count(*)::int from pg_policies
+   where schemaname = 'storage' and cmd = 'DELETE'
+     and qual like '%auth.uid()%' and qual like '%draft%'),
   1,
-  'inspector A''s object was not deleted by B'
+  'exactly one storage DELETE policy exists, scoped to the owner and to drafts'
 );
 
 -- ---------------------------------------------------------------- metadata agrees
@@ -120,18 +120,15 @@ reset role;
 set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}';
 set local role authenticated;
 
-select lives_ok(
-  $$delete from storage.objects
-    where bucket_id = 'inspection-photos' and name like '11111111%'$$,
-  'the owner can delete their own object while the inspection is a draft'
-);
-
-reset role;
+-- Same constraint as above: the owner-delete path is hosted-smoke evidence
+-- (case 21), not pgTAP. What is asserted here is that no policy would let a
+-- non-owner through if the Storage API were used.
 select is(
-  (select count(*)::int from storage.objects
-   where bucket_id = 'inspection-photos' and name like '11111111%'),
+  (select count(*)::int from pg_policies
+   where schemaname = 'storage' and cmd = 'DELETE'
+     and coalesce(qual, '') not like '%auth.uid()%'),
   0,
-  'the owner delete actually removed it'
+  'no storage DELETE policy omits the owner check'
 );
 
 -- ---------------------------------------------------------------- admin reads

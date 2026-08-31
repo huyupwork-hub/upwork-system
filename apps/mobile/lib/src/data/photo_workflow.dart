@@ -44,10 +44,10 @@ class PhotoWorkflow implements PhotosRepository {
     required PhotoMetadataStore metadata,
     required String Function() currentUserId,
     Uuid? uuid,
-  }) : _objects = objects,
-       _metadata = metadata,
-       _currentUserId = currentUserId,
-       _uuid = uuid ?? const Uuid();
+  })  : _objects = objects,
+        _metadata = metadata,
+        _currentUserId = currentUserId,
+        _uuid = uuid ?? const Uuid();
 
   final PhotoObjectStore _objects;
   final PhotoMetadataStore _metadata;
@@ -133,5 +133,6 @@ class PhotoWorkflow implements PhotosRepository {
   Future<String> signedUrl(
     ItemPhoto photo, {
     Duration ttl = const Duration(minutes: 10),
-  }) => _objects.signedUrl(photo.storagePath, ttl);
+  }) =>
+      _objects.signedUrl(photo.storagePath, ttl);
 }

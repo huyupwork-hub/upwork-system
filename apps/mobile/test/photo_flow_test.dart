@@ -64,7 +64,8 @@ void main() {
 
   tearDown(() => auth.dispose());
 
-  Future<void> openItem(WidgetTester tester, {bool submittedParent = false}) async {
+  Future<void> openItem(WidgetTester tester,
+      {bool submittedParent = false}) async {
     if (submittedParent) {
       inspections.rows
         ..clear()
@@ -101,7 +102,8 @@ void main() {
     await tester.tap(find.widgetWithText(CupertinoButton, 'Sign In'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text(submittedParent ? 'Northgate Retail Park' : 'Harbour View Apartments'));
+    await tester.tap(find.text(
+        submittedParent ? 'Northgate Retail Park' : 'Harbour View Apartments'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cracked pane'));
     await tester.pumpAndSettle();

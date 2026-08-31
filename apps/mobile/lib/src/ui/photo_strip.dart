@@ -230,14 +230,14 @@ class _ThumbPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    color: AppColors.fill,
-    alignment: Alignment.center,
-    child: const Icon(
-      CupertinoIcons.photo,
-      size: 22,
-      color: AppColors.label3,
-    ),
-  );
+        color: AppColors.fill,
+        alignment: Alignment.center,
+        child: const Icon(
+          CupertinoIcons.photo,
+          size: 22,
+          color: AppColors.label3,
+        ),
+      );
 }
 
 class _AddTile extends StatelessWidget {
@@ -262,7 +262,8 @@ class _AddTile extends StatelessWidget {
         alignment: Alignment.center,
         child: busy
             ? const CupertinoActivityIndicator()
-            : const Icon(CupertinoIcons.camera, size: 24, color: AppColors.blue),
+            : const Icon(CupertinoIcons.camera,
+                size: 24, color: AppColors.blue),
       ),
     );
   }
