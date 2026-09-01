@@ -291,7 +291,13 @@ class _InspectionsScreenState extends State<InspectionsScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (rows != null && _error == null && _shownQuery.isEmpty) ...[
+        // Nothing to summarise and nothing to filter when the list is empty.
+        // Three zeroes and a dead segmented control are furniture, and they push
+        // the one sentence that matters — how to start — down the screen.
+        if (rows != null &&
+            rows.isNotEmpty &&
+            _error == null &&
+            _shownQuery.isEmpty) ...[
           _summary(rows),
           Padding(
             padding: const EdgeInsets.fromLTRB(
