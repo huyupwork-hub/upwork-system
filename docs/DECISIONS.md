@@ -413,6 +413,22 @@ so rather than the list quietly looking complete.
 rendered as a second pill beside `Draft`, from the queue's contents, never from a
 column. After a sync one of those two facts is still true and the other is not, which
 is exactly why they are not one field.
+**A network call the seam did not own defeated all of it, and real-device QA found it.**
+`InspectionsScreen` loaded the inspector's `profiles` row before the history, and that
+call goes straight to PostgREST. With a warm in-memory profile — which is the state
+after signing in online — nothing showed. On a cold start with no connection it threw,
+the whole screen rendered a raw DNS error, and **no inspections appeared at all**: the
+draft was safely in `shared_preferences` and completely unreachable, which to an
+inspector is indistinguishable from having lost it. The `+` action was gated on the same
+profile, so creating a draft offline was dead too — the one thing this slice exists for.
+**The rule this establishes:** the offline boundary is only as good as the *slowest*
+thing the screen waits for. The history now loads first and the profile is optional; a
+missing name hides the footer and omits the sheet's Inspector row rather than blocking
+anything, because ownership was never decided by what that row printed (D14).
+**Why 263 passing tests missed it:** `FakeProfileRepository` had no way to be
+unreachable. The inspections fake had been given one; the profile fake had not, so every
+"offline" test ran half-connected. Any fake standing in for something across a network
+needs an unreachable mode, or it quietly proves less than it appears to.
 
 ### D25 — A refusal is not an outage — *Accepted*
 `isTransportFailure` classifies every failure before anything is queued. A

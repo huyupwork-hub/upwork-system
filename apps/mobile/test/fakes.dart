@@ -60,8 +60,20 @@ class FakeProfileRepository implements ProfileRepository {
   Profile? profile;
   bool throwMissing;
 
+  /// Set to make `loadCurrent` throw — the profile row lives on the server, so
+  /// it is unreachable exactly when everything else is.
+  ///
+  /// This fake had no such mode, and that is why 263 passing tests missed the
+  /// defect real-device QA found: the history screen loaded the profile before
+  /// the list, so on a cold offline start one unreachable call blanked the
+  /// whole screen and the inspector's saved drafts looked lost. Every fake that
+  /// stands in for something across a network needs a way to be unreachable, or
+  /// the offline path is only ever tested half-connected.
+  Object? failWith;
+
   @override
   Future<Profile> loadCurrent() async {
+    if (failWith != null) throw failWith!;
     if (throwMissing) throw const ProfileMissingException('user-1');
     return profile ??
         const Profile(

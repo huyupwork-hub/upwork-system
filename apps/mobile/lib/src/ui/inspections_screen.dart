@@ -125,11 +125,19 @@ class _InspectionsScreenState extends State<InspectionsScreen>
     setState(() => _error = null);
 
     try {
-      final profile = _profile ?? await widget.profiles.loadCurrent();
+      // The list first, and the profile after — the order is the fix for a
+      // defect real-device QA found. Loading the profile first meant one
+      // network call the offline path does not own could fail the whole screen:
+      // reopening the app in a basement showed a raw DNS error and no
+      // inspections at all, so an inspector's saved work looked lost when it
+      // was safely on disk. Nothing on this screen needs the profile to render
+      // the history, so nothing on this screen waits for it.
       final trimmed = query.trim();
       final rows = trimmed.isEmpty
           ? await widget.inspections.listMine()
           : await widget.inspections.searchMine(trimmed);
+
+      final profile = _profile ?? await _loadProfileOrNull();
 
       // Superseded by a newer keystroke: drop this result on the floor. The
       // existing rows stay on screen throughout, so the list never flashes away
@@ -146,14 +154,30 @@ class _InspectionsScreenState extends State<InspectionsScreen>
     }
   }
 
-  Future<void> _newInspection() async {
-    final profile = _profile;
-    if (profile == null) return;
+  /// The signed-in inspector's name, or null when it could not be fetched.
+  ///
+  /// Only a transport failure is tolerated. A `ProfileMissingException` means
+  /// the schema bootstrap failed (D13) and must stay visible, so it propagates
+  /// and the screen shows it — the same rule the offline repositories follow
+  /// for a refusal versus an outage.
+  Future<Profile?> _loadProfileOrNull() async {
+    try {
+      return await widget.profiles.loadCurrent();
+    } catch (e) {
+      if (!isTransportFailure(e)) rethrow;
+      return null;
+    }
+  }
 
+  Future<void> _newInspection() async {
+    // Deliberately not gated on the profile any more. The name is a read-only
+    // courtesy on the sheet; ownership comes from the session and RLS (D14), so
+    // not knowing what to print is no reason to refuse the one action this
+    // slice exists to make possible offline.
     final created = await showNewInspectionSheet(
       context,
       inspections: widget.inspections,
-      inspectorName: profile.fullName,
+      inspectorName: _profile?.fullName,
     );
     // A new inspection would probably not match the current query, so clearing
     // it is the only way the user sees what they just made.
@@ -211,7 +235,11 @@ class _InspectionsScreenState extends State<InspectionsScreen>
             ),
             trailing: CupertinoButton(
               padding: EdgeInsets.zero,
-              onPressed: _profile == null ? null : _newInspection,
+              // Enabled as soon as the screen has loaded, profile or not. It
+              // used to wait for the profile, which meant the New Inspection
+              // action was dead in exactly the situation the offline slice is
+              // for: no signal, nothing cached, work to record.
+              onPressed: _rows == null ? null : _newInspection,
               child: const Icon(CupertinoIcons.add, color: AppColors.blue),
             ),
           ),

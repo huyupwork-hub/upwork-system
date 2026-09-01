@@ -89,11 +89,17 @@ void main() {
   void goOffline() {
     remoteInspections.failWith = offline;
     remoteInspections.readFailsWith = offline;
+    // The profile row is on the server too. Leaving it reachable is what hid a
+    // real defect: the screen loaded the profile before the list, so on a cold
+    // offline start one unreachable call blanked the history and the saved
+    // draft looked lost. "Offline" has to mean everything across the network.
+    profiles.failWith = offline;
   }
 
   void goOnline() {
     remoteInspections.failWith = null;
     remoteInspections.readFailsWith = null;
+    profiles.failWith = null;
   }
 
   /// Signs in and lands on History.
@@ -365,6 +371,72 @@ void main() {
 
     expect(find.byKey(const Key('detail-status')), findsOneWidget);
     expect(find.text('Submitted'), findsWidgets);
+  });
+
+  testWidgets('a cold start with no connection still shows the saved draft',
+      (tester) async {
+    // The defect real-device QA found, as a test. Steps 6-8 of the QA script:
+    // create offline, kill the process, reopen still offline. The profile is
+    // fetched from the server and there is nothing cached to fall back on, so
+    // before the fix this rendered a raw DNS error and an empty screen — the
+    // inspector's work was safely on disk and completely unreachable.
+    await launch(tester);
+    goOffline();
+    await createInspection(tester, site: 'QA164248 Depot');
+    await tester.tap(find.text('QA164248 Depot'));
+    await tester.pumpAndSettle();
+    await addItem(tester, 'Cracked pane');
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // Process death: every object is rebuilt, only the stored bytes survive,
+    // and the profile is still unreachable because the network still is.
+    sink.failInspection = offline;
+    await relaunch(tester);
+
+    expect(find.byKey(const Key('inspections-error')), findsNothing);
+    expect(find.text('QA164248 Depot'), findsOneWidget);
+    expect(find.byKey(const Key('unsynced-pill')), findsOneWidget);
+    expect(find.byKey(const Key('offline-banner')), findsOneWidget);
+
+    // And the item is still under it.
+    await tester.tap(find.text('QA164248 Depot'));
+    await tester.pumpAndSettle();
+    expect(find.text('Cracked pane'), findsOneWidget);
+  });
+
+  testWidgets('a draft can still be created on a cold offline start',
+      (tester) async {
+    // The second half of the same defect: the + action was gated on the profile
+    // having loaded, so it was dead in exactly the situation this slice is for.
+    // The Inspector row is omitted rather than guessed — ownership comes from
+    // the session either way (D14).
+    await launch(tester);
+    goOffline();
+    await relaunch(tester);
+
+    await tester.tap(find.byIcon(CupertinoIcons.add));
+    await tester.pumpAndSettle();
+    expect(find.byType(NewInspectionSheet), findsOneWidget);
+    expect(find.byKey(const Key('inspector-readonly')), findsNothing);
+
+    await tester.enterText(sheetFields().at(0), 'Basement Depot');
+    await tester.tap(find.byKey(const Key('create-inspection-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Basement Depot'), findsOneWidget);
+    expect(find.byKey(const Key('unsynced-pill')), findsOneWidget);
+  });
+
+  testWidgets('a missing profile row is still surfaced, not swallowed',
+      (tester) async {
+    // Only a transport failure is tolerated. ProfileMissingException means the
+    // schema bootstrap failed (D13) and must stay visible — the same
+    // outage-versus-refusal rule the repositories follow.
+    profiles.throwMissing = true;
+    await launch(tester);
+
+    expect(find.byKey(const Key('inspections-error')), findsOneWidget);
   });
 
   testWidgets('reopening with a connection pushes the queue unasked',

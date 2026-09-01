@@ -8,7 +8,7 @@ import 'theme.dart';
 Future<Inspection?> showNewInspectionSheet(
   BuildContext context, {
   required InspectionsRepository inspections,
-  required String inspectorName,
+  required String? inspectorName,
 }) {
   return showCupertinoModalPopup<Inspection>(
     context: context,
@@ -37,7 +37,12 @@ class NewInspectionSheet extends StatefulWidget {
   });
 
   final InspectionsRepository inspections;
-  final String inspectorName;
+
+  /// Null when the profile could not be fetched — offline, on a cold start.
+  /// The row is then omitted rather than showing a placeholder: ownership comes
+  /// from the session either way, and inventing a label for the owner is worse
+  /// than saying nothing about it.
+  final String? inspectorName;
 
   @override
   State<NewInspectionSheet> createState() => _NewInspectionSheetState();
@@ -174,11 +179,16 @@ class _NewInspectionSheetState extends State<NewInspectionSheet> {
                         children: [
                           _dateRow(),
                           // Read-only: the owner is the signed-in user (D3/RLS).
-                          ReadOnlyRow(
-                            label: 'Inspector',
-                            value: widget.inspectorName,
-                            valueKey: const Key('inspector-readonly'),
-                          ),
+                          // Absent when the name is unknown, which happens on a
+                          // cold start with no connection. The row was never
+                          // what decided ownership, so its absence changes
+                          // nothing except what is printed.
+                          if (widget.inspectorName != null)
+                            ReadOnlyRow(
+                              label: 'Inspector',
+                              value: widget.inspectorName!,
+                              valueKey: const Key('inspector-readonly'),
+                            ),
                         ],
                       ),
                       if (_error != null)
