@@ -6,6 +6,7 @@ import '../data/models.dart';
 import '../data/repositories.dart';
 import '../offline/offline_status.dart';
 import '../report/report_service.dart';
+import 'presentation.dart';
 import 'inspection_detail_screen.dart';
 import 'new_inspection_screen.dart';
 import 'offline_banner.dart';
@@ -61,6 +62,10 @@ class _InspectionsScreenState extends State<InspectionsScreen>
   Profile? _profile;
   List<Inspection>? _rows;
   String? _error;
+
+  /// Which slice of the loaded list is on screen. Presentation only — it never
+  /// reaches the repository, so search keeps being the one thing that queries.
+  _ListFilter _filter = _ListFilter.all;
 
   /// The query the displayed rows came from, so the empty state can tell "you
   /// have no inspections" from "nothing matched that".
@@ -277,14 +282,48 @@ class _InspectionsScreenState extends State<InspectionsScreen>
           // marker cannot outlive the sync that cleared it.
           SliverToBoxAdapter(
             child: widget.offline == null
-                ? _body()
+                ? _listSection()
                 : ValueListenableBuilder<OfflineStatus>(
                     valueListenable: widget.offline!,
-                    builder: (context, _, __) => _body(),
+                    builder: (context, _, __) => _listSection(),
                   ),
           ),
         ],
       ),
+    );
+  }
+
+  /// Summary, filter and list. Split from [_body] so the summary can read the
+  /// same loaded rows the list does — it is a view over them, never a
+  /// second source.
+  Widget _listSection() {
+    final rows = _rows;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (rows != null && _error == null && _shownQuery.isEmpty) ...[
+          _summary(rows),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppMetrics.gutter,
+              14,
+              AppMetrics.gutter,
+              2,
+            ),
+            child: SegmentedFilter<_ListFilter>(
+              key: const Key('inspections-filter'),
+              value: _filter,
+              onChanged: (f) => setState(() => _filter = f),
+              segments: const [
+                (_ListFilter.all, 'All'),
+                (_ListFilter.drafts, 'Drafts'),
+                (_ListFilter.submitted, 'Submitted'),
+              ],
+            ),
+          ),
+        ],
+        _body(),
+      ],
     );
   }
 
@@ -338,15 +377,41 @@ class _InspectionsScreenState extends State<InspectionsScreen>
       );
     }
 
+    // Client-side narrowing of rows the server already returned. It is a view
+    // over the loaded list, not a second query — search stays the one thing
+    // that talks to Postgres, so its proven semantics are untouched.
+    final shown = switch (_filter) {
+      _ListFilter.all => rows,
+      _ListFilter.drafts =>
+        rows.where((r) => r.status == InspectionStatus.draft).toList(),
+      _ListFilter.submitted =>
+        rows.where((r) => r.status == InspectionStatus.submitted).toList(),
+    };
+
+    if (shown.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(32, 40, 32, 32),
+        child: Text(
+          'No ${_filter == _ListFilter.drafts ? 'drafts' : 'submitted '
+              'inspections'} here.',
+          key: const Key('inspections-filter-empty'),
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 15, color: AppColors.label2),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SectionHeader(
-          label: _shownQuery.isEmpty ? 'All Inspections' : 'Results',
+          label: _shownQuery.isEmpty
+              ? '${shown.length} Inspection${shown.length == 1 ? '' : 's'}'
+              : 'Results',
         ),
         InsetCard(
           children: [
-            for (final row in rows)
+            for (final row in shown)
               _InspectionRow(
                 inspection: row,
                 isUnsynced: _isUnsynced(row.id),
@@ -354,16 +419,145 @@ class _InspectionsScreenState extends State<InspectionsScreen>
               ),
           ],
         ),
-        if (_profile != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-            child: Text(
-              'Signed in as ${_profile!.fullName}',
-              style: const TextStyle(fontSize: 13, color: AppColors.label2),
+        const SizedBox(height: 28),
+      ],
+    );
+  }
+
+  /// The portfolio's first impression: who is signed in, and what is on their
+  /// plate. Every number here is counted from the rows already on screen, so it
+  /// costs no query and cannot disagree with the list below it.
+  Widget _summary(List<Inspection> rows) {
+    final drafts = rows.where((r) => r.status == InspectionStatus.draft).length;
+    final submitted = rows.length - drafts;
+    final pending = widget.offline?.value.pending ?? 0;
+    final profile = _profile;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppMetrics.gutter, 4, 16, 2),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(AppMetrics.cardRadius),
+          border: Border.all(color: AppColors.separator, width: 0.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: const BoxDecoration(
+                    color: AppColors.blueTint,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    _initials(profile?.fullName),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.blue,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        profile?.fullName ?? 'Signed in',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.label,
+                        ),
+                      ),
+                      Text(
+                        profile == null
+                            ? 'Field inspector'
+                            : '${_roleLabel(profile.role)} · Field inspection',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.label2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                _Metric(value: '$drafts', label: 'In draft'),
+                _Metric(value: '$submitted', label: 'Submitted'),
+                _Metric(
+                  value: '$pending',
+                  label: 'Not synced',
+                  emphasis: pending > 0 ? AppColors.orange : null,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _initials(String? name) {
+    final parts = (name ?? '')
+        .trim()
+        .split(RegExp(r'[\s._-]+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '—';
+    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+    return (parts.first.substring(0, 1) + parts[1].substring(0, 1))
+        .toUpperCase();
+  }
+
+  static String _roleLabel(String role) =>
+      role == 'admin' ? 'Reviewer' : 'Inspector';
+}
+
+/// Which slice of the loaded list is shown. Presentation only.
+enum _ListFilter { all, drafts, submitted }
+
+/// One number and its caption, three across.
+class _Metric extends StatelessWidget {
+  const _Metric({required this.value, required this.label, this.emphasis});
+
+  final String value;
+  final String label;
+  final Color? emphasis;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.5,
+              color: emphasis ?? AppColors.label,
             ),
           ),
-        const SizedBox(height: 32),
-      ],
+          const SizedBox(height: 1),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: AppColors.label2),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -381,87 +575,108 @@ class _InspectionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final subtitle = [
-      NewInspection.dateOnly(inspection.inspectionDate),
-      if (inspection.siteAddress != null) inspection.siteAddress!,
-      if (inspection.clientName != null) inspection.clientName!,
-    ].join('  ·  ');
+    // Address is the line a field inspector navigates by, so it gets its own
+    // row rather than being crushed into a middle-dot list with the date.
+    final address = inspection.siteAddress;
+    final client = inspection.clientName;
 
     return CupertinoButton(
       padding: EdgeInsets.zero,
       minimumSize: Size.zero,
       onPressed: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.fromLTRB(16, 12, 14, 12),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    inspection.siteName,
-                    style:
-                        const TextStyle(fontSize: 17, color: AppColors.label),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          inspection.siteName,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.label,
+                            letterSpacing: -0.2,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      // The prototype's small amber dot beside a name that is
+                      // still only on the device. Redundant with the pill
+                      // below by design — the dot is what survives a glance.
+                      if (isUnsynced) ...[
+                        const SizedBox(width: 7),
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: const BoxDecoration(
+                            color: AppColors.orange,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.label2,
+                  if (address != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      address,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: AppColors.label2,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  ],
+                  const SizedBox(height: 7),
+                  Row(
+                    children: [
+                      if (isUnsynced) ...[
+                        const UnsyncedPill(),
+                        const SizedBox(width: 6),
+                      ],
+                      PhasePill(phase: InspectionPhase.of(inspection)),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          [
+                            NewInspection.dateOnly(inspection.inspectionDate),
+                            // Demo content, deterministic per id: the schema
+                            // has no template column and D14 kept templates
+                            // out of V1.
+                            DemoContent.templateFor(inspection.id),
+                            if (client != null) client,
+                          ].join('  ·  '),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.label2,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
-            // Both, when both are true: it is a draft *and* it is not on the
-            // server yet. One pill would lose whichever fact it dropped.
-            if (isUnsynced) ...[
-              const UnsyncedPill(),
-              const SizedBox(width: 6),
-            ],
-            _StatusPill(status: inspection.status),
-            const SizedBox(width: 6),
-            const Icon(
-              CupertinoIcons.chevron_forward,
-              size: 16,
-              color: AppColors.label3,
+            const Padding(
+              padding: EdgeInsets.only(left: 8, top: 4),
+              child: Icon(
+                CupertinoIcons.chevron_forward,
+                size: 16,
+                color: AppColors.label3,
+              ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Only the two persisted lifecycle states exist. The mockup also shows
-/// "syncing" and "offline" chips; those are transient connectivity states, not
-/// inspection lifecycle, and are never stored (docs/DECISIONS.md D5).
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.status});
-
-  final InspectionStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDraft = status == InspectionStatus.draft;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: isDraft ? AppColors.fill : AppColors.greenTint,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        isDraft ? 'Draft' : 'Submitted',
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: isDraft ? AppColors.label2 : AppColors.green,
         ),
       ),
     );

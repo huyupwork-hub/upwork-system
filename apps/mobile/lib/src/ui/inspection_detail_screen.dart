@@ -7,6 +7,7 @@ import '../data/repositories.dart';
 import '../report/report_service.dart';
 import '../report/report_snapshot.dart';
 import 'item_editor_sheet.dart';
+import 'presentation.dart';
 import 'theme.dart';
 
 /// One inspection and its punch list.
@@ -57,6 +58,13 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
   late Inspection _inspection;
 
   List<InspectionItem>? _rows;
+
+  /// Photo metadata per item id, filled in after the list renders. Empty until
+  /// then, and left empty when the fetch fails.
+  Map<String, List<ItemPhoto>> _photos = const {};
+
+  /// Which findings the punch list is showing. Presentation only.
+  _ItemFilter _itemFilter = _ItemFilter.all;
   String? _error;
 
   ReportStage? _stage;
@@ -78,8 +86,39 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
       final rows = await widget.items.listFor(_inspection.id);
       if (!mounted) return;
       setState(() => _rows = rows);
+      // Photo counts are what turn a punch list into evidence, so they are
+      // fetched — but after the list is already on screen, and never blocking
+      // it. A basement with no signal still gets the findings; it just does not
+      // get thumbnails, which is the right thing to lose first.
+      unawaited(_loadPhotoCounts(rows));
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  /// Per-item photo metadata, gathered through the existing repository.
+  ///
+  /// One call per item, in parallel. `item_photos` carries a denormalised
+  /// `inspection_id` (D8) and an index on it, so a single whole-inspection
+  /// query would be cheaper — but that means a new repository method, and the
+  /// report loader already walks items one at a time. Matching the existing
+  /// shape is worth more here than saving a round trip on a list this size.
+  Future<void> _loadPhotoCounts(List<InspectionItem> rows) async {
+    try {
+      final results = await Future.wait(
+        rows.map((r) => widget.photos.listFor(r.id)),
+      );
+      if (!mounted) return;
+      setState(() {
+        _photos = {
+          for (var i = 0; i < rows.length; i++) rows[i].id: results[i],
+        };
+      });
+    } catch (_) {
+      // Deliberately silent. Thumbnails are decoration on this screen; the
+      // findings are the content, and they are already rendered. Surfacing a
+      // photo-count failure as a screen error would hide working data behind a
+      // cosmetic problem.
     }
   }
 
@@ -214,10 +253,10 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
       child: SafeArea(
         child: ListView(
           children: [
-            const SectionHeader(label: 'Site'),
+            _hero(i),
+            const SectionHeader(label: 'Property'),
             InsetCard(
               children: [
-                ReadOnlyRow(label: 'Name', value: i.siteName),
                 if (i.siteAddress != null)
                   ReadOnlyRow(label: 'Address', value: i.siteAddress!),
                 if (i.clientName != null)
@@ -225,6 +264,13 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                 ReadOnlyRow(
                   label: 'Date',
                   value: NewInspection.dateOnly(i.inspectionDate),
+                ),
+                // Demo content, deterministic per id. There is no template
+                // column and D14 kept templates out of V1 — the prototype
+                // shows one, so it is shown here and marked as what it is.
+                ReadOnlyRow(
+                  label: 'Template',
+                  value: DemoContent.templateFor(i.id),
                 ),
                 ReadOnlyRow(
                   label: 'Status',
@@ -263,7 +309,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                   style: const TextStyle(fontSize: 13, color: AppColors.red),
                 ),
               ),
-            const SectionHeader(label: 'Punch list'),
+            _punchHeader(),
             _items(),
             if (_isEditable && widget.isUnsynced) _unsyncedFooter,
             if (_isEditable && !widget.isUnsynced) _submitFooter(),
@@ -271,6 +317,134 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  InspectionStats get _stats => InspectionStats.from(
+        _rows ?? const [],
+        photos: _photos.values.fold(0, (n, list) => n + list.length),
+      );
+
+  /// The block a reviewer reads first: what this place is, how far along it is,
+  /// and how bad it is. Every number is counted from the punch list already
+  /// loaded — nothing here is fetched separately or invented.
+  Widget _hero(Inspection i) {
+    final stats = _stats;
+    final loading = _rows == null;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppMetrics.gutter, 12, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(AppMetrics.cardRadius),
+          border: Border.all(color: AppColors.separator, width: 0.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              i.siteName,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.5,
+                color: AppColors.label,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (widget.isUnsynced) ...[
+                  const UnsyncedPill(),
+                  const SizedBox(width: 6),
+                ],
+                PhasePill(phase: InspectionPhase.of(i)),
+              ],
+            ),
+            if (!loading) ...[
+              const SizedBox(height: 15),
+              StatsLine(
+                stats: stats,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppColors.label,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              if (!stats.isEmpty) ...[
+                const SizedBox(height: 12),
+                SeverityBreakdown(stats: stats),
+                const SizedBox(height: 15),
+                ProgressBar(stats: stats),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// "Findings (5)" with the Add action and the filter beneath it.
+  Widget _punchHeader() {
+    final rows = _rows;
+    final total = rows?.length ?? 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(AppMetrics.gutter, 22, 16, 6),
+          child: Row(
+            children: [
+              Text(
+                rows == null ? 'FINDINGS' : 'FINDINGS ($total)',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.label2,
+                  letterSpacing: 0.4,
+                ),
+              ),
+              const Spacer(),
+              if (_isEditable)
+                CupertinoButton(
+                  key: const Key('add-item-inline'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 3,
+                  ),
+                  minimumSize: Size.zero,
+                  borderRadius: BorderRadius.circular(8),
+                  color: AppColors.blue,
+                  onPressed: () => _edit(),
+                  child: const Text(
+                    'Add',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.card,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if ((rows?.length ?? 0) > 1)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppMetrics.gutter, 0, 16, 10),
+            child: SegmentedFilter<_ItemFilter>(
+              key: const Key('punch-filter'),
+              value: _itemFilter,
+              onChanged: (f) => setState(() => _itemFilter = f),
+              segments: const [
+                (_ItemFilter.all, 'All'),
+                (_ItemFilter.open, 'Open'),
+                (_ItemFilter.resolved, 'Resolved'),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
@@ -403,19 +577,89 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
       );
     }
 
-    return InsetCard(
+    final shown = switch (_itemFilter) {
+      _ItemFilter.all => rows,
+      _ItemFilter.open =>
+        rows.where((r) => r.status == ItemStatus.open).toList(),
+      _ItemFilter.resolved =>
+        rows.where((r) => r.status == ItemStatus.resolved).toList(),
+    };
+
+    if (shown.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(32, 20, 32, 24),
+        child: Text(
+          _itemFilter == _ItemFilter.open
+              ? 'Nothing open. Every finding is resolved.'
+              : 'Nothing resolved yet.',
+          key: const Key('items-filter-empty'),
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 15, color: AppColors.label2),
+        ),
+      );
+    }
+
+    // Grouped worst-first, the way a punch list is actually triaged: the
+    // critical defect that stops a handover should never be three scrolls below
+    // a scratched floorboard just because it was recorded later.
+    final groups = <ItemSeverity, List<InspectionItem>>{};
+    for (final row in shown) {
+      groups.putIfAbsent(row.severity, () => []).add(row);
+    }
+    const order = [
+      ItemSeverity.critical,
+      ItemSeverity.high,
+      ItemSeverity.medium,
+      ItemSeverity.low,
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final row in rows)
-          _ItemRow(item: row, onTap: _isEditable ? () => _edit(row) : null),
+        for (final severity in order)
+          if (groups[severity] != null) ...[
+            Padding(
+              padding:
+                  const EdgeInsets.fromLTRB(AppMetrics.gutter + 4, 8, 16, 6),
+              child: Text(
+                severity.label.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                  color: SeverityPalette.foreground(severity),
+                ),
+              ),
+            ),
+            InsetCard(
+              children: [
+                for (final row in groups[severity]!)
+                  _ItemRow(
+                    item: row,
+                    photos: _photos[row.id] ?? const [],
+                    onTap: _isEditable ? () => _edit(row) : null,
+                  ),
+              ],
+            ),
+          ],
       ],
     );
   }
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.item, this.onTap});
+  const _ItemRow({
+    required this.item,
+    this.photos = const [],
+    this.onTap,
+  });
 
   final InspectionItem item;
+
+  /// Metadata only. The thumbnail is not rendered from these — the bucket is
+  /// private and every image needs a signed URL — so the row shows the count
+  /// and a neutral placeholder rather than a broken image.
+  final List<ItemPhoto> photos;
 
   /// Null on a submitted inspection: the row is a record, not a control.
   final VoidCallback? onTap;
@@ -423,22 +667,31 @@ class _ItemRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final resolved = item.status.isResolved;
-    final subtitle = [
-      if (item.area != null) item.area!,
-      if (item.description != null) item.description!,
-    ].join('  ·  ');
+    final description = item.description;
 
     return CupertinoButton(
       padding: EdgeInsets.zero,
       minimumSize: Size.zero,
       onPressed: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppMetrics.gutter,
-          vertical: 10,
-        ),
+        padding: const EdgeInsets.fromLTRB(AppMetrics.gutter, 12, 14, 12),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Severity as a dot beside the title, the way the prototype leads
+            // each finding. The chip below still spells the word out — colour
+            // alone would exclude anyone who cannot separate red from orange.
+            Padding(
+              padding: const EdgeInsets.only(top: 5, right: 10),
+              child: Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: SeverityPalette.foreground(item.severity),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -446,19 +699,19 @@ class _ItemRow extends StatelessWidget {
                   Text(
                     item.title,
                     style: TextStyle(
-                      fontSize: 17,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
                       color: resolved ? AppColors.label2 : AppColors.label,
                       // Resolved items stay legible rather than being struck
                       // through: the text is still the record of what was wrong.
-                      fontWeight: FontWeight.w400,
                     ),
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (subtitle.isNotEmpty) ...[
+                  if (item.area != null) ...[
                     const SizedBox(height: 2),
                     Text(
-                      subtitle,
+                      item.area!,
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.label2,
@@ -467,32 +720,71 @@ class _ItemRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
+                  if (description != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        height: 1.3,
+                        color: AppColors.label2,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  const SizedBox(height: 7),
+                  Row(
+                    children: [
+                      SeverityChip(severity: item.severity),
+                      const SizedBox(width: 8),
+                      Text(
+                        resolved ? 'Resolved' : 'Open',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: resolved ? AppColors.green : AppColors.label2,
+                        ),
+                      ),
+                      if (photos.isNotEmpty) ...[
+                        const SizedBox(width: 10),
+                        const Icon(
+                          CupertinoIcons.camera,
+                          size: 13,
+                          color: AppColors.label2,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          '${photos.length}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.label2,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
               ),
             ),
-            if (resolved)
-              const Padding(
-                padding: EdgeInsets.only(right: 8),
-                child: Icon(
-                  CupertinoIcons.checkmark_circle_fill,
-                  size: 18,
-                  color: AppColors.green,
-                ),
-              ),
-            SeverityChip(severity: item.severity),
             // No chevron when the row is not tappable — it would promise an
             // interaction that does not exist.
-            if (onTap != null) ...[
-              const SizedBox(width: 6),
-              const Icon(
-                CupertinoIcons.chevron_forward,
-                size: 16,
-                color: AppColors.label3,
+            if (onTap != null)
+              const Padding(
+                padding: EdgeInsets.only(left: 8, top: 4),
+                child: Icon(
+                  CupertinoIcons.chevron_forward,
+                  size: 16,
+                  color: AppColors.label3,
+                ),
               ),
-            ],
           ],
         ),
       ),
     );
   }
 }
+
+/// Which findings the punch list shows. Presentation only — it never reaches
+/// the repository, so the item CRUD semantics are untouched.
+enum _ItemFilter { all, open, resolved }

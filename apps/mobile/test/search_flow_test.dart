@@ -3,6 +3,7 @@ import 'package:fieldproof/src/data/photo_workflow.dart';
 import 'package:fieldproof/src/report/report_loader.dart';
 import 'package:fieldproof/src/report/report_service.dart';
 import 'package:fieldproof/src/ui/app.dart';
+import 'package:fieldproof/src/ui/theme.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -60,6 +61,12 @@ void main() {
   });
 
   tearDown(() => auth.dispose());
+
+  /// A status word as rendered inside the list card, not anywhere on screen.
+  Finder statusInCard(String label) => find.descendant(
+        of: find.byType(InsetCard),
+        matching: find.text(label),
+      );
 
   Future<void> signIn(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1200, 2400);
@@ -122,7 +129,10 @@ void main() {
       expect(find.textContaining('4 Northgate Way'), findsOneWidget);
       expect(find.textContaining('Cavendish Estates'), findsOneWidget);
       expect(find.textContaining('2026-08-20'), findsOneWidget);
-      expect(find.text('Submitted'), findsOneWidget);
+      // Scoped to the card: 'Submitted' is also a filter segment now, so an
+      // unscoped finder would pass on the wrong widget. This asserts the row's
+      // own status pill, which is what the test is about.
+      expect(statusInCard('Submitted'), findsOneWidget);
     });
 
     testWidgets('drafts and submitted rows both render', (tester) async {
@@ -137,8 +147,8 @@ void main() {
       ]);
       await signIn(tester);
 
-      expect(find.text('Draft'), findsOneWidget);
-      expect(find.text('Submitted'), findsOneWidget);
+      expect(statusInCard('Draft'), findsOneWidget);
+      expect(statusInCard('Submitted'), findsOneWidget);
     });
 
     testWidgets('an empty history invites creating one', (tester) async {
