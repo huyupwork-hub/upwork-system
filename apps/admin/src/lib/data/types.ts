@@ -15,6 +15,15 @@ export const SEVERITY_ORDER: readonly Severity[] = [
   'low',
 ];
 
+/** Counts derived from the inspection's own findings. Optional because a row
+ * may be constructed without them — the table then shows a dash rather than a
+ * zero, which would be a claim. */
+export interface FindingSummary {
+  total: number;
+  open: number;
+  bySeverity: Record<Severity, number>;
+}
+
 export interface SubmittedInspection {
   id: string;
   siteName: string;
@@ -24,6 +33,8 @@ export interface SubmittedInspection {
   submittedAt: string | null;
   status: InspectionStatus;
   inspectorName: string | null;
+  /** Derived, not stored. See FindingSummary. */
+  findings?: FindingSummary;
 }
 
 export interface InspectionItem {

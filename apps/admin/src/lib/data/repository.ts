@@ -2,9 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { toTsQuery } from './search';
 import type {
+  FindingSummary,
   InspectionDetail,
   InspectionItem,
   ItemPhoto,
+  Severity,
   SubmittedInspection,
 } from './types';
 
@@ -24,7 +26,13 @@ export interface AdminRepository {
 
 const INSPECTION_COLUMNS =
   'id, site_name, site_address, client_name, inspection_date, status, ' +
-  'submitted_at, created_at, profiles!inspections_inspector_id_fkey(full_name)';
+  'submitted_at, created_at, profiles!inspections_inspector_id_fkey(full_name), ' +
+  // Nested read, the same shape the profiles join already uses. RLS applies to
+  // it exactly as it does to a top-level select: the admin item policy scopes
+  // to items whose parent is submitted, so this cannot widen what is visible.
+  // Severity and status only — enough to count by, and nothing a reviewer
+  // could not already open the inspection and read.
+  'inspection_items(severity, status)';
 
 const ITEM_COLUMNS =
   'id, sort_order, title, description, area, severity, status, created_at';
@@ -38,6 +46,7 @@ interface InspectionRow {
   status: string;
   submitted_at: string | null;
   profiles?: { full_name?: string | null } | { full_name?: string | null }[] | null;
+  inspection_items?: { severity: string; status: string }[] | null;
 }
 
 function inspectorName(row: InspectionRow): string | null {
@@ -45,6 +54,29 @@ function inspectorName(row: InspectionRow): string | null {
   if (!p) return null;
   const one = Array.isArray(p) ? p[0] : p;
   return one?.full_name ?? null;
+}
+
+/**
+ * Counts the nested findings. Absent nesting yields no summary rather than a
+ * row of zeroes: "we did not fetch this" and "there are none" are different
+ * facts, and a table that prints 0 for both tells the reviewer the wrong one.
+ */
+function summarise(row: InspectionRow): FindingSummary | undefined {
+  const rows = row.inspection_items;
+  if (!rows) return undefined;
+
+  const bySeverity: Record<Severity, number> = {
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+  };
+  let open = 0;
+  for (const item of rows) {
+    if (item.severity in bySeverity) bySeverity[item.severity as Severity] += 1;
+    if (item.status === 'open') open += 1;
+  }
+  return { total: rows.length, open, bySeverity };
 }
 
 function toInspection(row: InspectionRow): SubmittedInspection {
@@ -57,6 +89,7 @@ function toInspection(row: InspectionRow): SubmittedInspection {
     submittedAt: row.submitted_at,
     status: row.status === 'submitted' ? 'submitted' : 'draft',
     inspectorName: inspectorName(row),
+    findings: summarise(row),
   };
 }
 

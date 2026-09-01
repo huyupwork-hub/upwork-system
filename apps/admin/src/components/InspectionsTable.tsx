@@ -1,5 +1,10 @@
 import { formatDate, formatTimestamp } from '@/lib/format';
-import type { SubmittedInspection } from '@/lib/data/types';
+import {
+  SEVERITY_ORDER,
+  type FindingSummary,
+  type Severity,
+  type SubmittedInspection,
+} from '@/lib/data/types';
 
 import { SubmittedPill } from './Badges';
 
@@ -33,10 +38,12 @@ export function InspectionsTable({
     <table className="table" data-testid="inspections-table">
       <thead>
         <tr>
-          <th scope="col">Site</th>
+          <th scope="col">Property</th>
           <th scope="col">Client</th>
           <th scope="col">Inspector</th>
-          <th scope="col">Inspection date</th>
+          <th scope="col">Date</th>
+          <th scope="col">Findings</th>
+          <th scope="col">Severity</th>
           <th scope="col">Submitted</th>
           <th scope="col">Status</th>
         </tr>
@@ -54,8 +61,14 @@ export function InspectionsTable({
             </td>
             <td>{row.clientName ?? '—'}</td>
             <td>{row.inspectorName ?? '—'}</td>
-            <td>{formatDate(row.inspectionDate)}</td>
-            <td>{formatTimestamp(row.submittedAt)}</td>
+            <td className="nowrap">{formatDate(row.inspectionDate)}</td>
+            <td className="nowrap">
+              <FindingsCell findings={row.findings} />
+            </td>
+            <td>
+              <SeverityCounts findings={row.findings} />
+            </td>
+            <td className="nowrap">{formatTimestamp(row.submittedAt)}</td>
             <td>
               <SubmittedPill />
             </td>
@@ -65,3 +78,57 @@ export function InspectionsTable({
     </table>
   );
 }
+
+/**
+ * "5 findings · 2 open", or a dash when the counts were not fetched.
+ *
+ * A reviewer triaging a queue wants to know how much is in a record before
+ * opening it. Both numbers are counted from the inspection's own items; neither
+ * is stored.
+ */
+function FindingsCell({ findings }: { findings?: FindingSummary }) {
+  if (!findings) return <span className="muted">—</span>;
+  if (findings.total === 0) return <span className="muted">None</span>;
+
+  return (
+    <span>
+      {findings.total}
+      {findings.open > 0 ? (
+        <span className="muted"> · {findings.open} open</span>
+      ) : (
+        <span className="muted"> · all resolved</span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Severity counts, worst first, and only the ones that occur.
+ *
+ * Four zeroes would be noise, and would make an inspection with a single scuff
+ * look as urgent as one with three critical defects. The number is spelled out
+ * beside the colour for the same reason the mobile chip is: colour alone
+ * excludes anyone who cannot separate these hues.
+ */
+function SeverityCounts({ findings }: { findings?: FindingSummary }) {
+  if (!findings || findings.total === 0) return <span className="muted">—</span>;
+
+  const present = SEVERITY_ORDER.filter((s) => findings.bySeverity[s] > 0);
+  return (
+    <span className="sev-counts">
+      {present.map((s) => (
+        <span key={s} className={`sev-count severity-${s}`}>
+          <i aria-hidden="true" />
+          {findings.bySeverity[s]} {SEVERITY_LABEL[s]}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+const SEVERITY_LABEL: Record<Severity, string> = {
+  critical: 'Critical',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+};

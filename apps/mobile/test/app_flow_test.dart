@@ -3,6 +3,7 @@ import 'package:fieldproof/src/data/photo_workflow.dart';
 import 'package:fieldproof/src/report/report_loader.dart';
 import 'package:fieldproof/src/report/report_service.dart';
 import 'package:fieldproof/src/ui/app.dart';
+import 'package:fieldproof/src/ui/theme.dart';
 import 'package:fieldproof/src/ui/inspections_screen.dart';
 import 'package:fieldproof/src/ui/new_inspection_screen.dart';
 import 'package:fieldproof/src/ui/sign_in_screen.dart';
@@ -47,6 +48,17 @@ void main() {
   });
 
   tearDown(() => auth.dispose());
+
+  /// A status word as rendered inside a list card, not anywhere on screen.
+  ///
+  /// The parity pass gave the list a filter whose segments are also spelled
+  /// "Drafts"/"Submitted", and a summary strip that counts them. An unscoped
+  /// find.text can therefore match furniture instead of the row, so these
+  /// assertions say which one they mean.
+  Finder statusInCard(String label) => find.descendant(
+        of: find.byType(InsetCard),
+        matching: find.text(label),
+      );
 
   Future<void> pumpApp(WidgetTester tester) async {
     await tester.pumpWidget(
@@ -125,6 +137,11 @@ void main() {
       await pumpApp(tester);
       await signIn(tester);
 
+      // Sign Out moved off the list's navigation bar and into Settings, which
+      // is the only place it lives now. Reaching it through the tab bar is the
+      // path a user has, so it is the path this test takes.
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(CupertinoButton, 'Sign Out'));
       await tester.pumpAndSettle();
 
@@ -207,7 +224,7 @@ void main() {
       expect(inspections.insertPayloads, hasLength(1));
       expect(find.byType(NewInspectionSheet), findsNothing);
       expect(find.text('Harbour View Apartments'), findsOneWidget);
-      expect(find.text('Draft'), findsOneWidget);
+      expect(statusInCard('Draft'), findsOneWidget);
     });
 
     testWidgets('the owner comes from the session, never from the form',
@@ -274,8 +291,8 @@ void main() {
       await signIn(tester);
 
       expect(find.text('Northgate Retail Park'), findsOneWidget);
-      expect(find.text('Submitted'), findsOneWidget);
-      expect(find.text('Draft'), findsOneWidget);
+      expect(statusInCard('Submitted'), findsOneWidget);
+      expect(statusInCard('Draft'), findsOneWidget);
       // The mockup's syncing/offline chips are never persisted (D5).
       expect(find.text('Syncing'), findsNothing);
       expect(find.text('Offline'), findsNothing);

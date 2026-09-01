@@ -3,7 +3,7 @@ import 'package:flutter/cupertino.dart';
 import '../data/repositories.dart';
 import '../offline/offline_status.dart';
 import '../report/report_service.dart';
-import 'inspections_screen.dart';
+import 'home_shell.dart';
 import 'sign_in_screen.dart';
 import 'theme.dart';
 
@@ -97,7 +97,7 @@ class AuthGate extends StatelessWidget {
       builder: (context, snapshot) {
         final userId = snapshot.data;
         if (userId == null) return SignInScreen(auth: auth);
-        return InspectionsScreen(
+        return HomeShell(
           // Keyed by user so switching accounts rebuilds rather than reusing
           // another inspector's loaded state.
           key: ValueKey(userId),

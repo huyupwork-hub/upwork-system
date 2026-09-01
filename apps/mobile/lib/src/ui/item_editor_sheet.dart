@@ -5,7 +5,7 @@ import '../data/repositories.dart';
 import 'photo_strip.dart';
 import 'theme.dart';
 
-/// Presents the punch-item editor and returns true if anything was persisted.
+/// Presents the finding editor and returns true if anything was persisted.
 ///
 /// One sheet for both create and edit: the fields are identical, and a second
 /// near-copy would be two places to keep in step.
@@ -131,7 +131,7 @@ class _ItemEditorSheetState extends State<ItemEditorSheet> {
     final confirmed = await showCupertinoModalPopup<bool>(
       context: context,
       builder: (sheetContext) => CupertinoActionSheet(
-        title: const Text('Delete this item?'),
+        title: const Text('Delete this finding?'),
         message: const Text('This cannot be undone.'),
         actions: [
           CupertinoActionSheetAction(
@@ -220,20 +220,24 @@ class _ItemEditorSheetState extends State<ItemEditorSheet> {
                       ),
                       const SectionHeader(label: 'Severity'),
                       _severityPicker(),
-                      // Photos need an item to attach to, so they appear only once the
-                      // item exists. Creating then attaching is one extra tap; the
-                      // alternative is holding bytes in memory against a row that may
-                      // never be saved.
-                      if (widget.isEditing) ...[
-                        const SectionHeader(label: 'Photos'),
+                      _severityHintLine(),
+                      // Photos need a row to attach to, so the strip appears
+                      // only once the finding exists. Creating then attaching is
+                      // one extra tap; the alternative is holding bytes in
+                      // memory against a row that may never be saved. The
+                      // section header is shown either way so the capability is
+                      // visible before it is reachable.
+                      const SectionHeader(label: 'Photos'),
+                      if (widget.isEditing)
                         PhotoStrip(
                           photos: widget.photos,
                           source: widget.source,
                           inspectionId: widget.inspectionId,
                           itemId: widget.existing!.id,
                           editable: true,
-                        ),
-                      ],
+                        )
+                      else
+                        _photosAfterSaveNote(),
                       const SectionHeader(label: 'Status'),
                       _statusRow(),
                       if (_error != null)
@@ -252,7 +256,8 @@ class _ItemEditorSheetState extends State<ItemEditorSheet> {
                         padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
                         child: PrimaryButton(
                           key: const Key('save-item-button'),
-                          label: widget.isEditing ? 'Save Changes' : 'Add Item',
+                          label:
+                              widget.isEditing ? 'Save Changes' : 'Add Finding',
                           busy: _busy,
                           onPressed: _save,
                         ),
@@ -264,7 +269,7 @@ class _ItemEditorSheetState extends State<ItemEditorSheet> {
                             key: const Key('delete-item-button'),
                             onPressed: _busy ? null : _delete,
                             child: const Text(
-                              'Delete Item',
+                              'Delete Finding',
                               style: TextStyle(color: AppColors.red),
                             ),
                           ),
@@ -307,7 +312,7 @@ class _ItemEditorSheetState extends State<ItemEditorSheet> {
             ),
             Expanded(
               child: Text(
-                widget.isEditing ? 'Edit Item' : 'New Item',
+                widget.isEditing ? 'Edit Finding' : 'New Finding',
                 textAlign: TextAlign.center,
                 style:
                     const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
@@ -318,6 +323,23 @@ class _ItemEditorSheetState extends State<ItemEditorSheet> {
           ],
         ),
       );
+
+  /// What each level is for, in the words a site report would use.
+  ///
+  /// Severity is the one field on this sheet that changes what happens next —
+  /// it orders the findings list, drives the breakdown on the detail screen and
+  /// feeds the counts a reviewer triages by. Four bare words leave the boundary
+  /// between them to guesswork, and two inspectors guessing differently is how
+  /// a severity column stops meaning anything.
+  ///
+  /// Static copy, not data: it describes the choice being made. Nothing here is
+  /// stored, sent, or derived from a record.
+  static String _severityHint(ItemSeverity s) => switch (s) {
+        ItemSeverity.critical => 'Unsafe now. Stop work or make safe today.',
+        ItemSeverity.high => 'Must be fixed before the site is handed over.',
+        ItemSeverity.medium => 'Schedule a repair in the normal run of work.',
+        ItemSeverity.low => 'Cosmetic or wear. Record it, fix when convenient.',
+      };
 
   Widget _severityPicker() => Padding(
         padding: const EdgeInsets.symmetric(horizontal: AppMetrics.gutter),
@@ -343,26 +365,88 @@ class _ItemEditorSheetState extends State<ItemEditorSheet> {
         ),
       );
 
-  Widget _statusRow() => InsetCard(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppMetrics.gutter,
-              vertical: 10,
+  Widget _severityHintLine() => Padding(
+        padding: const EdgeInsets.fromLTRB(AppMetrics.gutter, 8, 16, 0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 5),
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: SeverityPalette.foreground(_severity),
+                shape: BoxShape.circle,
+              ),
             ),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Text('Resolved', style: TextStyle(fontSize: 17)),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                _severityHint(_severity),
+                key: const Key('severity-hint'),
+                style: const TextStyle(fontSize: 13, color: AppColors.label2),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  /// Photos attach to a row, so before the row exists there is nothing to
+  /// attach them to.
+  ///
+  /// Said plainly rather than left as an absence. An inspector who expects a
+  /// camera here and finds nothing has to guess whether the feature is missing
+  /// or the screen is broken, and one line removes the question. Deliberately
+  /// not a DependencyNote: photo capture and upload are built and working, and
+  /// dressing a sequencing rule up as a missing integration would be its own
+  /// small untruth.
+  Widget _photosAfterSaveNote() => const Padding(
+        padding: EdgeInsets.fromLTRB(AppMetrics.gutter, 6, 16, 0),
+        child: Text(
+          'Photos can be attached once the finding is saved.',
+          key: Key('photos-after-save'),
+          style: TextStyle(fontSize: 13, color: AppColors.label2),
+        ),
+      );
+
+  Widget _statusRow() => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InsetCard(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppMetrics.gutter,
+                  vertical: 10,
                 ),
-                CupertinoSwitch(
-                  key: const Key('item-resolved-switch'),
-                  value: _status.isResolved,
-                  onChanged: (v) => setState(
-                    () => _status = v ? ItemStatus.resolved : ItemStatus.open,
-                  ),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text('Resolved', style: TextStyle(fontSize: 17)),
+                    ),
+                    CupertinoSwitch(
+                      key: const Key('item-resolved-switch'),
+                      value: _status.isResolved,
+                      onChanged: (v) => setState(
+                        () =>
+                            _status = v ? ItemStatus.resolved : ItemStatus.open,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppMetrics.gutter, 6, 16, 0),
+            child: Text(
+              _status.isResolved
+                  ? 'Resolved findings stay in the report as evidence of the '
+                      'fix.'
+                  : 'Open findings are counted in the summary and in the '
+                      'reviewer queue.',
+              key: const Key('status-hint'),
+              style: const TextStyle(fontSize: 13, color: AppColors.label2),
             ),
           ),
         ],

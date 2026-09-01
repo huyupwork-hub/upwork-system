@@ -121,8 +121,15 @@ out of shell history.
 
 ## Deliberate constraints
 
-- **No service-role key anywhere.** The app has no privileged path and neither
-  does this test; that is the property under test.
+- **No privileged key in the app, and none in this test.** The app has no
+  privileged path and neither does the test: it decodes the key it is handed
+  and refuses to start unless the claim is `anon`, because a privileged key
+  would bypass RLS and every isolation assertion here would pass while proving
+  nothing. That property is unchanged.
+
+  What is new is a *separate* cleanup step that runs after the test process has
+  exited, holding a key the test never sees. See [Cleanup](#cleanup) — it
+  changes no policy and gives no client any new power.
 - **No bypass code, no test-only branches in production classes.** The test uses
   `SupabaseAuthRepository`, `SupabaseProfileRepository` and
   `SupabaseInspectionsRepository` exactly as `main.dart` does.
@@ -131,6 +138,58 @@ out of shell history.
 - **Credentials via environment, not `--dart-define`.** Defines appear in the
   process command line and in CI step echoes.
 
+---
+
+## Cleanup
+
+A smoke run creates inspections, punch items, a photo and a storage object, and
+removes each one as it goes. One fixture it cannot remove: case 22 submits an
+inspection on purpose, submit is one-way (D10), and the delete policy requires
+`status = 'draft'` (D17). The run's own teardown therefore matched zero rows and
+succeeded silently, leaving one `SMOKE … do-not-keep` row in the shared project
+per CI run. Six had accumulated before anyone looked at the demo queue.
+
+The fix is `apps/mobile/tool/smoke_purge.dart`, run as a separate workflow step:
+
+| | |
+| --- | --- |
+| **Runs** | `if: always()`, after the test step, so a run that fails halfway still cleans up |
+| **Scope** | exact ids from the manifest the run writes as it creates them, plus a name sweep bounded by **both** the `SMOKE ` prefix and the run's own token |
+| **Never** | deletes by owner, by date, by status, or by anything unbounded |
+| **Proof** | re-reads after deleting and exits non-zero if anything remains |
+| **Touches** | no migration, no policy, no application code |
+
+The manifest (`build/smoke-manifest.json`) is flushed on every registration, not
+at the end, because the run it exists for is the one that dies halfway. Storage
+objects are deleted *before* their inspection row: an object's delete policy
+reaches through the owning inspection, so removing the row first strands the
+bytes beyond any client's reach — which is how the orphaned objects already in
+this project came to exist.
+
+Case 38 is the regression guard. It asks the server which of the run's rows are
+still standing and requires the answer to be exactly one — the deliberately
+submitted inspection. A fixture added later without cleanup fails it.
+
+### Enabling it
+
+The step needs one secret the repository has never had. Until it is set the
+script prints a warning and exits 0, so a fork or a fresh clone is not
+permanently red — but the row is not removed either.
+
+```
+gh secret set SUPABASE_SERVICE_ROLE_KEY --repo <owner>/<repo>
+```
+
+`gh secret set` prompts for the value rather than taking it as an argument, so
+the key never reaches a shell history, a process list, or a transcript. Get it
+from the Supabase dashboard under Project Settings → API Keys.
+
+The key is used by this one step and nowhere else. It is not available to the
+test, to the app, to the admin console, or to any other job. If you would rather
+not hold one at all, the alternative is a `security definer` function allow-listed
+to the two smoke accounts — rejected here because it is a permanent privileged
+object in the production database and it would let those accounts delete their own
+submitted rows, which is a real if narrow exception to immutability.
 ---
 
 ## Verified

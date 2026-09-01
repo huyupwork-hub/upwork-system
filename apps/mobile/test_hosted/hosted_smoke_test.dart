@@ -22,6 +22,13 @@
 ///   SMOKE_USER_B_EMAIL       a second, different existing confirmed user
 ///   SMOKE_USER_B_PASSWORD
 ///
+/// Optional:
+///   SMOKE_RUN_TOKEN          a token carried in every fixture name, so the
+///                            cleanup step can bound its sweep. Defaults to a
+///                            local clock-derived value.
+///   SMOKE_MANIFEST           where to record what this run created, for the
+///                            same step. Defaults to build/smoke-manifest.json.
+///
 /// This test uses the anon key only. It exercises the same repository classes the
 /// app uses, so what passes here is the real client path, not a parallel one.
 library;
@@ -109,8 +116,24 @@ void main() {
   Inspection? histNewer;
   Inspection? bUnique;
 
+  // One token for the whole run, carried in every fixture name so the cleanup
+  // step can bound its sweep without being told what was created. CI supplies
+  // it — the same value reaches the purge step — and a local run falls back to
+  // the clock.
+  final runToken = _runToken();
+
+  // What this run made, recorded as it is made rather than at the end. A crash
+  // between an insert and the end of the suite must not hide a row from the
+  // purge, so every registration flushes to disk immediately.
+  final manifest = _RunManifest(
+    Platform.environment['SMOKE_MANIFEST'] ?? 'build/smoke-manifest.json',
+    runToken,
+  );
+
   // Nonsense tokens, unique per run, so a search assertion cannot accidentally
-  // match a leftover row from an earlier run.
+  // match a leftover row from an earlier run. Distinct from [runToken] and from
+  // each other: case 28 turns on A being unable to find B's term, and case 27
+  // on a prefix of A's term matching only A's rows.
   final searchTerm = 'zqx${DateTime.now().microsecondsSinceEpoch}';
   final bSearchTerm = 'qzb${DateTime.now().microsecondsSinceEpoch}';
 
@@ -119,9 +142,10 @@ void main() {
 
   Inspection? created;
 
-  // Distinctive per-run name so a leaked row is traceable to the run that made it.
-  final siteName =
-      'SMOKE ${DateTime.now().toUtc().toIso8601String()} do-not-keep';
+  // Every fixture name starts with 'SMOKE ' and contains the run token. That
+  // pair is the entire bound on the cleanup sweep, so it is not decoration:
+  // a row missing either is a row the purge step will not touch.
+  final siteName = 'SMOKE $runToken submitted do-not-keep';
 
   // The offline slice. Ids are minted here, before anything is written, exactly
   // as the device does — that is the property being exercised, so they cannot
@@ -130,7 +154,7 @@ void main() {
   final offlineId = _uuid.v4();
   final offlineItemA = _uuid.v4();
   final offlineItemB = _uuid.v4();
-  final offlineSite = 'SMOKE $offlineToken offline do-not-keep';
+  final offlineSite = 'SMOKE $runToken $offlineToken offline do-not-keep';
   LocalDraftBook? offlineBook;
   OfflineStatusNotifier? offlineStatus;
   DraftSync? offlineSync;
@@ -155,6 +179,11 @@ void main() {
 
     userAId = a.user!.id;
     userBId = b.user!.id;
+    manifest.users([userAId, userBId]);
+    // Minted here, before anything is written — the same property the offline
+    // slice depends on — so the purge knows about this row even if the sync
+    // case never runs.
+    manifest.inspection(offlineId);
 
     authA = SupabaseAuthRepository(clientA);
     profilesA = SupabaseProfileRepository(clientA);
@@ -175,20 +204,48 @@ void main() {
   });
 
   tearDownAll(() async {
-    // Leave the project as we found it. Deleting as A also re-proves the owner
-    // delete policy works.
-    final id = created?.id;
-    if (id != null) {
-      await clientA.from('inspections').delete().eq('id', id);
+    // Runs whatever happened above, which is the point: an assertion that fails
+    // in the middle must not be the reason a fixture survives. Every step is
+    // therefore attempted independently, and one failure cannot skip the rest.
+    //
+    // Storage first. An object's delete policy reaches through the owning
+    // inspection (D17), so deleting the row first strands the bytes beyond any
+    // client's reach — which is exactly how the orphaned objects already in
+    // this project came to exist.
+    for (final path in manifest.storagePaths) {
+      await _attempt(
+        'remove object $path',
+        () => clientA.storage.from(SupabaseObjectStore.bucket).remove([path]),
+      );
     }
-    // Belt and braces: if an offline case failed before its own cleanup, this
-    // still removes the fixture. It is a draft throughout, so the owner delete
-    // policy applies to it.
-    await clientA.from('inspections').delete().eq('id', offlineId);
-    await clientA.auth.signOut();
-    await clientB.auth.signOut();
-    await clientA.dispose();
-    await clientB.dispose();
+
+    // Then the rows, by exact id. Items and photo metadata are FK cascades of
+    // the inspection, so naming the parent is both sufficient and the narrowest
+    // delete available.
+    //
+    // Attempted as both principals because B owns one fixture and A the rest;
+    // RLS makes the wrong one a no-op rather than an error, so trying both is
+    // cheaper than tracking ownership for a teardown.
+    for (final id in manifest.inspectionIds) {
+      await _attempt(
+        'delete inspection $id as A',
+        () => clientA.from('inspections').delete().eq('id', id),
+      );
+      await _attempt(
+        'delete inspection $id as B',
+        () => clientB.from('inspections').delete().eq('id', id),
+      );
+    }
+
+    // The submitted fixture cannot go this way — submit is one-way (D10) and
+    // the delete policy requires a draft (D17) — so it is left for
+    // tool/smoke_purge.dart, which runs after this process exits under a key
+    // this process never holds. Case 38 asserts that it is the only residue.
+
+    await _attempt('sign out A', clientA.auth.signOut);
+    await _attempt('sign out B', clientB.auth.signOut);
+    await _attempt('dispose A', clientA.dispose);
+    await _attempt('dispose B', clientB.dispose);
   });
 
   test('1. user A authenticates with ordinary Supabase Auth', () {
@@ -216,6 +273,8 @@ void main() {
         inspectionDate: DateTime.now(),
       ),
     );
+
+    manifest.inspection(created!.id);
 
     expect(created!.id, isNotEmpty);
     expect(created!.status, InspectionStatus.draft,
@@ -406,6 +465,8 @@ void main() {
       photo: const CapturedPhoto(bytes: _tinyPng, contentType: 'image/png'),
     );
 
+    manifest.object(photo!.storagePath);
+
     expect(photo!.itemId, item!.id);
     expect(photo!.inspectionId, created!.id);
     expect(photo!.byteSize, _tinyPng.length);
@@ -550,7 +611,7 @@ void main() {
   test('24. user A creates two more inspections with known dates', () async {
     histOlder = await inspectionsA.create(
       NewInspection(
-        siteName: 'SMOKE $searchTerm older do-not-keep',
+        siteName: 'SMOKE $runToken $searchTerm older do-not-keep',
         siteAddress: '1 Older Street',
         clientName: 'Older Client',
         inspectionDate: DateTime(2020, 1, 1),
@@ -558,12 +619,15 @@ void main() {
     );
     histNewer = await inspectionsA.create(
       NewInspection(
-        siteName: 'SMOKE $searchTerm newer do-not-keep',
+        siteName: 'SMOKE $runToken $searchTerm newer do-not-keep',
         siteAddress: '2 Newer Street',
         clientName: 'Newer Client',
         inspectionDate: DateTime(2020, 6, 1),
       ),
     );
+    manifest.inspection(histOlder!.id);
+    manifest.inspection(histNewer!.id);
+
     expect(histOlder!.id, isNot(histNewer!.id));
   });
 
@@ -625,10 +689,12 @@ void main() {
   test('28. neither inspector can discover the other through search', () async {
     bUnique = await inspectionsB.create(
       NewInspection(
-        siteName: 'SMOKE $bSearchTerm bravo do-not-keep',
+        siteName: 'SMOKE $runToken $bSearchTerm bravo do-not-keep',
         inspectionDate: DateTime(2020, 3, 1),
       ),
     );
+
+    manifest.inspection(bUnique!.id);
 
     // The term exists, and B can find it.
     expect(
@@ -814,7 +880,7 @@ void main() {
       LocalDraft(
         id: offlineId,
         ownerId: userBId,
-        siteName: 'SMOKE hijack do-not-keep',
+        siteName: 'SMOKE $runToken hijack do-not-keep',
         inspectionDate: DateTime(2026, 8, 27),
         createdAt: DateTime(2026, 8, 27),
       ),
@@ -870,6 +936,162 @@ void main() {
     expect(await itemsA.listFor(offlineId), isEmpty,
         reason: 'and the cascade took its items with it');
   });
+
+  // ------------------------------------------------------------ residue
+  //
+  // Every case above cleans up after itself. This one asks the server whether
+  // they actually did, which is a different question — and the one that went
+  // unasked while five `SMOKE ... do-not-keep` rows accumulated in the shared
+  // project, one per CI run.
+
+  test('38. the only record left behind is the one the purge step removes',
+      () async {
+    final ids = manifest.inspectionIds.toList();
+    expect(ids, isNotEmpty,
+        reason: 'the manifest must have recorded what this run created');
+
+    // Asked as both principals: B owns one fixture, and a row merely invisible
+    // to A is not thereby gone.
+    Future<Set<String>> stillThere(SupabaseClient client) async {
+      final rows =
+          await client.from('inspections').select('id').inFilter('id', ids);
+      return rows.map((r) => r['id'] as String).toSet();
+    }
+
+    final remaining = <String>{
+      ...await stillThere(clientA),
+      ...await stillThere(clientB),
+    };
+
+    // A run may leave exactly one row: the inspection case 22 submits on
+    // purpose, which no client is permitted to delete afterwards. Anything else
+    // standing here is a fixture whose cleanup was forgotten — which is the
+    // regression this case exists to catch.
+    expect(
+      remaining,
+      created == null ? <String>{} : {created!.id},
+      reason: 'only the deliberately-submitted inspection may survive the run',
+    );
+
+    // And it survived because it is submitted, not because a draft delete
+    // silently failed. Those two look identical from a row count.
+    if (created != null) {
+      final residue = await clientA
+          .from('inspections')
+          .select('status')
+          .eq('id', created!.id)
+          .single();
+      expect(residue['status'], 'submitted');
+    }
+
+    // No photo metadata, and no bytes. The object outliving its row is the
+    // failure mode that leaves storage no client can ever reach.
+    final photoRows = await clientA
+        .from('item_photos')
+        .select('id')
+        .inFilter('inspection_id', ids);
+    expect(photoRows, isEmpty, reason: 'photo metadata outlived the run');
+
+    // Asked by listing the folder, not by fetching a public URL. Case 18
+    // establishes that an unsigned URL never serves from this bucket whether
+    // the object exists or not, so `isNot(200)` here would have passed on a
+    // live object and proved nothing. A listing distinguishes the two.
+    for (final path in manifest.storagePaths) {
+      final cut = path.lastIndexOf('/');
+      final folder = path.substring(0, cut);
+      final name = path.substring(cut + 1);
+      final entries =
+          await clientA.storage.from(SupabaseObjectStore.bucket).list(
+                path: folder,
+              );
+      expect(
+        entries.map((e) => e.name),
+        isNot(contains(name)),
+        reason: 'storage object $path outlived the run',
+      );
+    }
+  });
+}
+
+/// A per-run token that is one lexeme and safe inside a LIKE pattern.
+///
+/// Stripped to `[a-z0-9]` for two reasons that both bite. The purge step
+/// interpolates it into `site_name like 'SMOKE %<token>%'`, where a stray `%`
+/// or `_` would quietly widen the match beyond this run; and Postgres would
+/// split anything else into separate lexemes, so a name would stop containing
+/// the single token it appears to contain.
+///
+/// CI passes the workflow run id, which makes a leaked row traceable to the run
+/// that made it. A local run falls back to the clock.
+String _runToken() {
+  final supplied = Platform.environment['SMOKE_RUN_TOKEN'] ?? '';
+  final cleaned = supplied.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+  if (cleaned.isNotEmpty) return cleaned;
+  return 'local${DateTime.now().microsecondsSinceEpoch}';
+}
+
+/// Everything this run created, written to disk on every registration.
+///
+/// Flushed eagerly rather than at the end, because the case it exists for is
+/// the run that dies halfway. Read only by tool/smoke_purge.dart; nothing in
+/// the app knows this file exists.
+class _RunManifest {
+  _RunManifest(this.path, this.runToken);
+
+  final String path;
+  final String runToken;
+  final Set<String> inspectionIds = <String>{};
+  final Set<String> storagePaths = <String>{};
+  final Set<String> userIds = <String>{};
+
+  void inspection(String id) {
+    if (inspectionIds.add(id)) _flush();
+  }
+
+  void object(String storagePath) {
+    if (storagePaths.add(storagePath)) _flush();
+  }
+
+  void users(Iterable<String> ids) {
+    final before = userIds.length;
+    userIds.addAll(ids);
+    if (userIds.length != before) _flush();
+  }
+
+  void _flush() {
+    try {
+      final file = File(path);
+      file.parent.createSync(recursive: true);
+      file.writeAsStringSync(
+        const JsonEncoder.withIndent('  ').convert({
+          'runToken': runToken,
+          'userIds': userIds.toList()..sort(),
+          'inspectionIds': inspectionIds.toList()..sort(),
+          'storagePaths': storagePaths.toList()..sort(),
+        }),
+      );
+    } on FileSystemException catch (e) {
+      // Reported, not fatal. Without a manifest the purge falls back to the
+      // token sweep, which still bounds the work correctly; what it loses is
+      // the storage paths, which have no name to sweep by.
+      stderr.writeln('smoke: could not write the run manifest at $path: $e');
+    }
+  }
+}
+
+/// Runs one teardown step, reporting a failure rather than propagating it.
+///
+/// `tearDownAll` abandons the rest of its body on the first exception, so a
+/// single unreachable fixture would leave every later one behind — the opposite
+/// of what cleanup is for. Catching `Exception` and not `Error` keeps that
+/// tolerance to the things that genuinely go wrong against a network (a refusal,
+/// a dropped socket) while a programming mistake still surfaces as one.
+Future<void> _attempt(String what, Future<void> Function() step) async {
+  try {
+    await step();
+  } on Exception catch (e) {
+    stderr.writeln('smoke teardown: $what failed: $e');
+  }
 }
 
 /// A 1x1 PNG. Small enough to upload in a smoke test, real enough to be a valid

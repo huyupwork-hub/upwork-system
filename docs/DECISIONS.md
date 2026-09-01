@@ -527,3 +527,58 @@ as E1b and deferred, because they need a durable local file store (a new `path_p
 dependency), deterministic photo ids so a retry cannot duplicate a Storage object, and
 local-file rendering in the photo strip — a slice of its own rather than a corner of this
 one. E1a, the draft and its punch items, is what closes here.
+
+### D28 — Nothing on screen is invented — *Accepted*
+
+The parity pass was allowed presentation mocks: stable, realistic, isolated, never written
+to Supabase. One was built — a deterministic inspection template per id, because the
+prototype shows a template and the schema has none (D14) — and it is gone again.
+
+A template name rendered in the record's own detail card is not decoration. It states that
+this inspection was carried out against "Commercial TI", and no such thing exists anywhere
+in the product. A reviewer who later discovers one invented field has to re-check every
+other one, so a single mock costs the credibility of the whole screen.
+
+So the rule is stricter than the brief required: **every value the app renders is either
+stored or computed from stored rows.** Where the prototype implies a capability that does
+not exist, a `DependencyNote` names the missing dependency in product language — "Requires
+an email delivery provider" — instead of a plausible value standing in for it. The note is
+shown only where the capability is visible or actionable; advertising an absence nobody
+asked about is its own kind of noise.
+
+The corollary, learned the hard way: a fabricated value fails a test somewhere unrelated.
+The invented Template row broke an assertion about which *fields the editor offers*,
+because the editor sheet renders over the detail screen. Mocks do not stay where they are
+put.
+
+### D29 — One noun for the row: finding — *Accepted*
+
+The detail screen said "Punch list", the editor said "Item", the admin console said "Punch
+items" in one place and "FINDINGS" in another, and the brief calls the screen the finding
+editor. Four names for one row across two surfaces of one product.
+
+It is **finding**, everywhere a person reads it. `inspection_items` remains the table name;
+D14 settled that the *schema* wins for status vocabulary because `submitted` is literally
+the enum value crossing the wire, and that reasoning does not extend to the noun for a row,
+which never crosses anything.
+
+### D30 — Screens are rendered and looked at, not just asserted — *Accepted*
+
+`apps/mobile/tool/render/capture_test.dart` renders every screen to a PNG at handset size
+with real fonts and the Cupertino glyph font registered.
+
+It is **not a gate**. `flutter test` with no path runs `test/` only, so CI never runs it. A
+golden that fails a build on an antialiasing difference teaches a team to delete goldens,
+and this is evidence, not a contract.
+
+It earned its place immediately: the first run would not compile — `UnsyncedPill` had been
+used without its import, and 272 passing tests plus three pushes had gone by without
+anyone noticing, because this machine has neither `flutter analyze` nor `flutter test`.
+Reading the pictures then found a stack trace serving as an error screen, two controls
+duplicated by the new tab bar, three zeroes and a dead filter over an empty list, and — in
+the admin, captured from `next dev` through headless Chrome — a curly apostrophe that had
+shipped as the digits `2019`, sitting under an assertion that only matched the prefix
+before it.
+
+**It does not replace on-device QA and is not offered as one.** Touch targets, keyboard
+insets, scroll physics, platform fonts and real photo bytes stay unverified for this pass.
