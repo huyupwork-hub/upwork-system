@@ -54,12 +54,12 @@ export function InspectionDetailView({ detail }: { detail: InspectionDetail }) {
 
       <section className="items">
         <h2>
-          Punch items <span className="muted">({items.length} total, {open} open)</span>
+          Findings <span className="muted">({items.length} total, {open} open)</span>
         </h2>
 
         {items.length === 0 ? (
           <p className="empty" data-testid="no-items">
-            This inspection was submitted with no punch items.
+            This inspection was submitted with no findings.
           </p>
         ) : (
           <ol className="item-list">
@@ -123,7 +123,7 @@ export function InspectionDetailView({ detail }: { detail: InspectionDetail }) {
       />
       <DependencyNote
         title="Raise a work order from a finding"
-        requirement="Requires a contractor2019s work-order integration"
+        requirement="Requires a work-order integration"
       />
     </article>
   );

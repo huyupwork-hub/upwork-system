@@ -119,8 +119,16 @@ describe('dependency notes', () => {
     const out = html(<InspectionDetailView detail={detail} />);
 
     expect(out).toContain('Requires an email delivery provider');
-    expect(out).toContain('Requires a contractor');
+    expect(out).toContain('Requires a work-order integration');
     expect(out).not.toMatch(/error|failed|unavailable/i);
+
+    // The previous version of this assertion matched on the prefix
+    // 'Requires a contractor', which is why it stayed green while the copy
+    // actually read 'contractor2019s' — a curly apostrophe that lost its
+    // backslash on the way into the file and shipped as four digits. Prefix
+    // matching cannot see corruption past the prefix, so the escape shapes are
+    // now excluded outright.
+    expect(out).not.toMatch(/\\u[0-9a-f]{4}|&#x?[0-9]+;|[0-9]{4}s\b/i);
   });
 
   it('does not add a control the console is not allowed to have', () => {
