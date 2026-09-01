@@ -992,12 +992,23 @@ void main() {
         .inFilter('inspection_id', ids);
     expect(photoRows, isEmpty, reason: 'photo metadata outlived the run');
 
+    // Asked by listing the folder, not by fetching a public URL. Case 18
+    // establishes that an unsigned URL never serves from this bucket whether
+    // the object exists or not, so `isNot(200)` here would have passed on a
+    // live object and proved nothing. A listing distinguishes the two.
     for (final path in manifest.storagePaths) {
-      final res = await httpGet(
-        clientA.storage.from(SupabaseObjectStore.bucket).getPublicUrl(path),
+      final cut = path.lastIndexOf('/');
+      final folder = path.substring(0, cut);
+      final name = path.substring(cut + 1);
+      final entries =
+          await clientA.storage.from(SupabaseObjectStore.bucket).list(
+                path: folder,
+              );
+      expect(
+        entries.map((e) => e.name),
+        isNot(contains(name)),
+        reason: 'storage object $path outlived the run',
       );
-      expect(res.statusCode, isNot(200),
-          reason: 'storage object $path outlived the run');
     }
   });
 }
