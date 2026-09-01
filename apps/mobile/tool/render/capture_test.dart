@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fieldproof/src/data/models.dart';
@@ -319,6 +320,92 @@ void main() {
     await shoot(tester, home(), '06-search-no-matches-setup');
   });
 
+  testWidgets('15 inspections loading', (tester) async {
+    await shoot(
+      tester,
+      InspectionsScreen(
+        profiles: profiles,
+        inspections: _NeverAnswers(),
+        items: items,
+        photos: photos,
+        source: source,
+        reports: reports,
+      ),
+      '15-inspections-loading',
+      settle: false,
+    );
+  });
+
+  testWidgets('16 search with no matches', (tester) async {
+    tester.view.physicalSize = size * dpr;
+    tester.view.devicePixelRatio = dpr;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        debugShowCheckedModeBanner: false,
+        theme: appTheme.copyWith(
+          textTheme: const CupertinoTextThemeData(
+            textStyle: TextStyle(
+              fontFamily: _renderFont,
+              fontSize: 17,
+              color: AppColors.label,
+              decoration: TextDecoration.none,
+            ),
+          ),
+        ),
+        home: home(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Typed, not injected: the empty-result copy has to quote the query the
+    // user actually entered, and the only way to prove that is to enter one.
+    await tester.enterText(
+      find.byKey(const Key('inspections-search')),
+      'quarry lane',
+    );
+    await tester.pumpAndSettle();
+    await expectLater(
+      find.byType(CupertinoApp),
+      matchesGoldenFile('goldens/16-search-no-matches.png'),
+    );
+  });
+
+  testWidgets('17 search with matches', (tester) async {
+    tester.view.physicalSize = size * dpr;
+    tester.view.devicePixelRatio = dpr;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        debugShowCheckedModeBanner: false,
+        theme: appTheme.copyWith(
+          textTheme: const CupertinoTextThemeData(
+            textStyle: TextStyle(
+              fontFamily: _renderFont,
+              fontSize: 17,
+              color: AppColors.label,
+              decoration: TextDecoration.none,
+            ),
+          ),
+        ),
+        home: home(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('inspections-search')),
+      'ravenscourt',
+    );
+    await tester.pumpAndSettle();
+    await expectLater(
+      find.byType(CupertinoApp),
+      matchesGoldenFile('goldens/17-search-results.png'),
+    );
+  });
+
   testWidgets('07 inspection detail hero', (tester) async {
     await shoot(
       tester,
@@ -444,6 +531,20 @@ void main() {
       '14-tab-shell',
     );
   });
+}
+
+/// A repository whose read never answers, so the loading state can be held
+/// still long enough to photograph.
+///
+/// The ordinary fake resolves on the next microtask, which is correct for tests
+/// and useless for a screenshot: the spinner is gone before the frame is taken.
+class _NeverAnswers extends FakeInspectionsRepository {
+  @override
+  Future<List<Inspection>> listMine() => Completer<List<Inspection>>().future;
+
+  @override
+  Future<List<Inspection>> searchMine(String query) =>
+      Completer<List<Inspection>>().future;
 }
 
 /// Registers a real typeface under the families Cupertino asks for.
