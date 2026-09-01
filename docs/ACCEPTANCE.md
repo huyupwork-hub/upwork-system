@@ -106,13 +106,13 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| I1 | ☐ An admin signs in and lists all **submitted** inspections. | Admin test |
-| I2 | ☐ An admin opens a submitted inspection and sees its items and photos. | Admin test |
-| I3 | ☐ A non-admin signing into the dashboard sees no inspections but their own. | Admin test |
+| I1 | ☑ An admin signs in and lists all **submitted** inspections. | Run `33453238838` ✅. `render.test.tsx` asserts the queue renders site, address, client, inspector name, inspection date, submitted timestamp and status, and one row per inspection. `repository.test.ts` asserts the query carries `eq(status, submitted)` and the D22 ordering (`inspection_date DESC, created_at DESC, id DESC`). Sign-in is ordinary Supabase auth with the publishable key and the console holds no privileged credential, so pgTAP `030` is what makes the list submitted-only |
+| I2 | ☑ An admin opens a submitted inspection and sees its items and photos. | Run `33453238838` ✅ — `render.test.tsx` asserts title, description, area, severity and open/resolved state per item, and photos rendered through their signed URL. The bucket stays private (D19): each URL is minted per request against the reviewer's own session, so storage RLS decides whether it is issued at all. A photo that cannot be signed is stated rather than omitted, so an incomplete record does not read as a complete one |
+| I3 | ☑ A non-admin signing into the dashboard is refused outright. | Run `33453238838` ✅ — **met more strictly than worded.** `access.test.ts` asserts an authenticated inspector resolves to `forbidden` and never reaches the console, so what they would see does not arise; RLS would in any case return only their own rows. It fails closed on a missing profile, an absent role, an unknown role, and the `Admin`/`not-admin` near-misses — a transient profile read must not become an authorisation bypass. pgTAP `020` proves the database half: an inspector cannot read another inspector's **submitted** row, named by id |
 | I6 | ☑ An admin cannot read a `draft` inspection, its items, its photos, or its storage objects — including by direct id. | CI run `d53d066` ✅ |
 | I7 | ☑ An admin cannot read the profile of an inspector who has only drafts. | CI run `d53d066` ✅ |
-| I4 | ☑ Every admin write attempt is rejected by the database, including creating an inspection of their own. | CI run `d53d066` ✅ |
-| I5 | ☐ The service-role key appears in no client bundle. | Grep over `.next` build output — asserted in CI |
+| I4 | ☑ Every admin write attempt is rejected by the database, including creating an inspection of their own, and including photo metadata. | Run `33453238838` ✅ — pgTAP `030`. `INSERT` on `inspections`, `inspection_items` and `item_photos` all raise `42501`. `UPDATE`/`DELETE` fail `USING` and are therefore **silent**, so each is followed by a privileged re-read proving the site name, the row count, the item severity, the photo row and its caption are all unchanged. The photo-metadata cases were added with the admin console: an admin who could add or remove a photo on the record they are reviewing would not be read-only in any sense that matters |
+| I5 | ☑ No privileged key appears in any client bundle. | Run `33453238838` ✅ — CI greps the built `.next/static` and reports `Client bundle clean.` Belt and braces: `src/lib/env.ts` refuses to start unless the key is positively identifiable as publishable (an anon JWT or `sb_publishable_`) — an allowlist, not a denylist — asserted in `env.test.ts` |
 
 ## J. Security / RLS
 
@@ -133,8 +133,8 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | K1 | ☑ `flutter analyze --fatal-infos` reports zero issues. | CI run `606017a` ✅ |
 | K2 | ☑ Flutter unit + widget tests pass — **153 tests**, 0 failures. | CI run `33446869242` ✅ |
 | K6 | ☑ `dart format --set-exit-if-changed` is clean. | CI run `606017a` ✅ |
-| K3 | ☑ pgTAP suite passes against a clean migration run. | CI run `d53d066` ✅ |
-| K4 | ☐ Admin lint, typecheck, and tests pass. | CI log |
+| K3 | ☑ pgTAP suite passes against a clean migration run — **174 assertions**, 9 files. | Run `33453238838` ✅ — `Files=9, Tests=174`, `Result: PASS`, run twice (unseeded apply, then seeded re-apply) |
+| K4 | ☑ Admin lint, typecheck, and tests pass — **36 tests**, 0 failures. | Run `33453238838` ✅ — `✔ No ESLint warnings or errors`, `tsc --noEmit` clean, vitest 36/36 across 5 files |
 | K5 | ☑ Tests are deterministic — no ordering dependence, no wall-clock flake. | CI run `d53d066` ✅ |
 
 ## L. Builds and release evidence
@@ -143,7 +143,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 |---|---|---|
 | L1 | ☑ Android APK builds in CI and is uploaded as an artifact. | Run `33446869242` ✅ — `app-release.apk` **56.2 MB**, artifact `fieldproof-android-656dfbb…` 26,170,704 bytes |
 | L2 | ◐ iOS build verification runs on a macOS runner (no signing required). | **Pending — macOS-only, no execution path.** Passed once on `macos-latest`: run `33351235214`, 1m52s, at `c796b6f`. Not re-verified at HEAD. Moved out of main CI to `.github/workflows/ios.yml`, manual dispatch only (D15) |
-| L3 | ☐ The admin production build succeeds. | CI log |
+| L3 | ☑ The admin production build succeeds. | Run `33453238838` ✅ — `✓ Compiled successfully`, 7 routes, 87.2 kB shared JS. `/inspections` and `/inspections/[id]` build as `ƒ` (server-rendered on demand), so no page is prerendered holding inspection data. Vercel-compatible; not deployed, since deployment is not part of the accepted workflow |
 | L4 | ☑ Migrations apply cleanly from empty to head. | CI run `d53d066` ✅ |
 | L5 | ☑ CI is green on the default branch. | Run [`33360748640`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33360748640) at `1145a88` — all five main-CI jobs green |
 
@@ -538,3 +538,66 @@ available weakening fix and was not taken.
 ### Not part of this slice
 
 Offline drafts and sync, real-device QA, and the admin dashboard remain ☐.
+
+---
+
+## Slice complete — Admin review console
+
+**Status: complete.** Run
+[`33453238838`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33453238838)
+at `bcf41ee` — one run, every gate green, nothing weakened to get there:
+
+| Gate | Result |
+|---|---|
+| Admin (Next.js) | ✅ lint clean, `tsc` clean, **36 tests**, production build, `Client bundle clean.` |
+| Database + RLS | ✅ pgTAP `010`–`090`, **Files=9 Tests=174**, `Result: PASS` |
+| Mobile (Flutter) | ✅ format 0 changed, analyze clean, **153 tests**, APK 56.2 MB |
+| Hosted Supabase smoke | ✅ **29/29** |
+| Secret hygiene | ✅ |
+
+APK artifact `fieldproof-android-bcf41ee…`, 26,170,705 bytes.
+
+### No migration was needed, and that was the finding
+
+The policies written for D3 already satisfied the accepted admin contract: `SELECT` only,
+scoped to `status = 'submitted'`, with no admin write policy of any kind and
+`and not public.is_admin()` on the ownership write policies. What was missing was two
+*assertions*, not two policies, and both are now in the suite:
+
+- **`030`** — an admin adding or removing photo **metadata**. The file read `item_photos`
+  but had never attempted to write it. `INSERT` raises `42501`; `UPDATE` and `DELETE` fail
+  `USING` and are therefore silent, so both are followed by a privileged re-read.
+- **`020`** — an ordinary inspector reading another inspector's **submitted** row, named
+  directly by id rather than inferred from a count, along with its items, its photo
+  metadata and the submitting inspector's profile. Submitting is what makes work
+  reviewable, not public — a distinction that only becomes testable once a console exists.
+
+### The console adds no privilege
+
+It signs in as an ordinary user, holds only the publishable key, and every query runs as
+the reviewer's own session, so the admin policies are the authority rather than a
+convention the UI agrees to follow (D23). `resolveAccess` is an authorisation gate on top
+of that, not a substitute for it: without it an inspector reaching `/inspections` would get
+a working console listing their *own* submitted work — not a leak, but not a review console
+either. Remove the gate and nothing leaks; remove RLS and everything does.
+
+### Read-only is asserted, not intended
+
+`AdminRepository` has no write method, and a test renders the detail view and fails if it
+contains a `button`, `form`, `input`, `select` or `textarea`. A control the database would
+refuse is still a lie told to the reviewer.
+
+### One search, one index, one ordering
+
+The console mirrors the Flutter client's tsquery construction against the same stored
+`search_tsv` and its existing GIN index — no second index and no second semantics — and
+reuses D22's total order. `test/search.test.ts` pins the cases the Dart tests pin, because
+two clients querying one column must not disagree about what a word matches. Search is a
+GET form, so the query lives in the URL and no client state library is involved.
+
+### Not part of this slice
+
+No server-side PDF (D21 — the Flutter client remains the only thing that generates a
+document, and nothing is persisted). No admin CRUD, user or role management, analytics,
+charts, audit-log UI, revision UI, comments or approvals. Real-device QA (L2) and offline
+sync remain ☐.
