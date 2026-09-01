@@ -181,8 +181,19 @@ class SupabaseInspectionItemsRepository implements InspectionItemsRepository {
         .from('inspection_items')
         .select(_columns)
         .eq('inspection_id', inspectionId)
-        .order('sort_order')
-        .order('created_at');
+        // `ascending` must be explicit. postgrest-dart's `order()` defaults to
+        // DESCENDING, so these two lines were returning the punch list in
+        // reverse — against D7, and against the in-memory fake, which sorts
+        // ascending and therefore could never catch it. Hosted smoke case 32 is
+        // the first test to assert the order of *two* server-side items, and it
+        // caught it immediately.
+        //
+        // It was not only a display fault: `create` below takes
+        // `existing.last.sortOrder + 1`, so under a descending read `last` was
+        // the *smallest* sort_order and the third item onwards collided with
+        // the second.
+        .order('sort_order', ascending: true)
+        .order('created_at', ascending: true);
 
     return rows.map(InspectionItem.fromRow).toList(growable: false);
   }
@@ -396,7 +407,12 @@ class SupabasePhotoMetadataStore implements PhotoMetadataStore {
         .from('item_photos')
         .select(_columns)
         .eq('item_id', itemId)
-        .order('created_at');
+        // Same defaulted-to-descending trap as inspection_items above. The
+        // interface says "oldest first" and this returned newest first. No test
+        // covers it — the smoke test attaches a single photo, so order is not
+        // observable there — so this one is fixed by inspection, not by a
+        // failure. Flagged rather than quietly corrected.
+        .order('created_at', ascending: true);
     return rows.map(ItemPhoto.fromRow).toList(growable: false);
   }
 

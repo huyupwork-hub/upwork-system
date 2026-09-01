@@ -73,6 +73,18 @@ duplicating layout logic. Server-side rendering is recorded as a V1 non-goal.
 **Why:** a unique constraint makes reordering require multi-statement shuffles or deferred
 constraints for no product benefit at this scale. Named `sort_order` rather than
 `position` because `POSITION` is a SQL keyword.
+**Ordering must be stated explicitly in the client, and was not.** `postgrest-dart`'s
+`order()` takes `ascending = false` as its **default**, so `.order('sort_order')` reads
+the punch list *descending*. Every server-side read of `inspection_items` and
+`item_photos` had this from the beginning. It was not only a display fault:
+`SupabaseInspectionItemsRepository.create` derives the next position from
+`existing.last.sortOrder + 1`, so under a descending read `last` was the *smallest*
+value and the third item onwards collided with the second.
+**Why it survived so long:** the in-memory fake sorts ascending, so no host-side test
+could see it, and no test had ever asserted the order of *two* items read back from the
+real database — the hosted smoke attached one item and one photo. Hosted smoke case 32,
+written for the offline slice, is the first to read two synced items back, and it failed
+on the first run. `ascending: true` is now written out at every call site.
 
 ### D8 — `item_photos` carries a denormalised `inspection_id` — *Accepted*
 Integrity is enforced by a composite foreign key to `inspection_items (id, inspection_id)`,
