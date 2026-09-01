@@ -106,6 +106,44 @@ class FakeInspectionsRepository implements InspectionsRepository {
   /// finish *after* a later one and prove the stale result is discarded.
   final Map<String, Duration> delays = {};
 
+  /// Ids this repository was asked to submit, in order.
+  final List<String> submitted = [];
+
+  /// Set to make submit() fail, standing in for the policy refusing it.
+  Object? submitFailsWith;
+
+  @override
+  Future<Inspection> submit(String inspectionId) async {
+    if (submitFailsWith != null) throw submitFailsWith!;
+
+    final index = rows.indexWhere((r) => r.id == inspectionId);
+    // Mirrors the production shape rather than RLS: the real refusal is a
+    // zero-row update, which the repository turns into this exception. The fake
+    // does not re-implement ownership — that is the database's job, proven in
+    // pgTAP 070 and the hosted smoke.
+    if (index < 0 || rows[index].status != InspectionStatus.draft) {
+      throw const NotPermittedException('submit this inspection');
+    }
+
+    submitted.add(inspectionId);
+    final was = rows[index];
+    final now = Inspection(
+      id: was.id,
+      inspectorId: was.inspectorId,
+      siteName: was.siteName,
+      siteAddress: was.siteAddress,
+      clientName: was.clientName,
+      inspectionDate: was.inspectionDate,
+      status: InspectionStatus.submitted,
+      // Server-stamped in production; the fake supplies one so callers can
+      // assert the screen renders what the server returned.
+      submittedAt: DateTime(2026, 9, 1, 12),
+      createdAt: was.createdAt,
+    );
+    rows[index] = now;
+    return now;
+  }
+
   @override
   Future<List<Inspection>> listMine() async {
     await _wait('');

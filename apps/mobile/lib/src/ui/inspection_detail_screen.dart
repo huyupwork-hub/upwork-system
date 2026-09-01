@@ -22,6 +22,7 @@ class InspectionDetailScreen extends StatefulWidget {
   const InspectionDetailScreen({
     super.key,
     required this.inspection,
+    required this.inspections,
     required this.items,
     required this.photos,
     required this.source,
@@ -29,6 +30,7 @@ class InspectionDetailScreen extends StatefulWidget {
   });
 
   final Inspection inspection;
+  final InspectionsRepository inspections;
   final InspectionItemsRepository items;
   final PhotosRepository photos;
   final PhotoSource source;
@@ -39,22 +41,31 @@ class InspectionDetailScreen extends StatefulWidget {
 }
 
 class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
+  /// Held in state rather than read from the widget, because submitting changes
+  /// it. The screen then re-renders as the frozen record it now is, which is
+  /// also the clearest possible confirmation that the submit took effect.
+  late Inspection _inspection;
+
   List<InspectionItem>? _rows;
   String? _error;
 
   ReportStage? _stage;
   String? _reportError;
 
+  bool _submitting = false;
+  String? _submitError;
+
   @override
   void initState() {
     super.initState();
+    _inspection = widget.inspection;
     unawaited(_load());
   }
 
   Future<void> _load() async {
     setState(() => _error = null);
     try {
-      final rows = await widget.items.listFor(widget.inspection.id);
+      final rows = await widget.items.listFor(_inspection.id);
       if (!mounted) return;
       setState(() => _rows = rows);
     } catch (e) {
@@ -64,7 +75,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
 
   /// Submitted work is frozen (D17). The database refuses the write regardless;
   /// this only stops the app offering it.
-  bool get _isEditable => widget.inspection.status == InspectionStatus.draft;
+  bool get _isEditable => _inspection.status == InspectionStatus.draft;
 
   Future<void> _edit([InspectionItem? existing]) async {
     if (!_isEditable) return;
@@ -73,10 +84,61 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
       items: widget.items,
       photos: widget.photos,
       source: widget.source,
-      inspectionId: widget.inspection.id,
+      inspectionId: _inspection.id,
       existing: existing,
     );
     if (changed == true) await _load();
+  }
+
+  /// Submitting is irreversible (D10) and it is what exposes the work to a
+  /// reviewer (D3), so it asks first. The confirmation names both consequences
+  /// rather than asking a bare "are you sure?", which teaches people to tap
+  /// through without reading.
+  Future<void> _confirmAndSubmit() async {
+    if (!_isEditable || _submitting) return;
+
+    final confirmed = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        key: const Key('submit-confirm-sheet'),
+        title: const Text('Submit this inspection?'),
+        message: const Text(
+          'It becomes a permanent record: you will not be able to change it, '
+          'add items or photos, or return it to draft. Reviewers can see it '
+          'once submitted.',
+        ),
+        actions: [
+          CupertinoActionSheetAction(
+            key: const Key('submit-confirm-button'),
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Submit'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _submitting = true;
+      _submitError = null;
+    });
+
+    try {
+      final submitted = await widget.inspections.submit(_inspection.id);
+      if (!mounted) return;
+      // The server's row, not a locally patched copy: submitted_at is stamped
+      // by a trigger, so only the returned row knows when this happened.
+      setState(() => _inspection = submitted);
+    } catch (e) {
+      if (mounted) setState(() => _submitError = e.toString());
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   Future<void> _generateReport() async {
@@ -84,7 +146,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
     setState(() => _reportError = null);
     try {
       await widget.reports.generateAndShare(
-        widget.inspection,
+        _inspection,
         onStage: (stage) {
           if (mounted) setState(() => _stage = stage);
         },
@@ -109,7 +171,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final i = widget.inspection;
+    final i = _inspection;
     return CupertinoPageScaffold(
       backgroundColor: AppColors.background,
       navigationBar: CupertinoNavigationBar(
@@ -193,9 +255,54 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
               ),
             const SectionHeader(label: 'Punch list'),
             _items(),
+            if (_isEditable) _submitFooter(),
             const SizedBox(height: 32),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Present only on a draft. A submitted inspection has no submit control at
+  /// all rather than a disabled one — the same rule the add and report actions
+  /// follow, since an affordance that can never succeed is worse than none.
+  ///
+  /// An inspection with no punch items can still be submitted: a site with
+  /// nothing wrong is a real result, and refusing to record it would push
+  /// people into inventing a defect.
+  Widget _submitFooter() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_submitError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                _submitError!,
+                key: const Key('submit-error'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: AppColors.red),
+              ),
+            ),
+          CupertinoButton.filled(
+            key: const Key('submit-inspection-button'),
+            onPressed: _submitting ? null : _confirmAndSubmit,
+            child: _submitting
+                ? const CupertinoActivityIndicator(color: AppColors.card)
+                : const Text('Submit Inspection'),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'Submitting is permanent and makes this inspection visible to '
+              'reviewers.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: AppColors.label2),
+            ),
+          ),
+        ],
       ),
     );
   }

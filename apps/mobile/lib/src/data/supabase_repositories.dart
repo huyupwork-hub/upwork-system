@@ -96,6 +96,34 @@ class SupabaseInspectionsRepository implements InspectionsRepository {
     return _query(tsQuery);
   }
 
+  @override
+  Future<Inspection> submit(String inspectionId) async {
+    if (_client.auth.currentUser == null) throw const NotSignedInException();
+
+    // Only status. submitted_at is stamped by the inspections_enforce_submission
+    // trigger, which is what stops the timestamp disagreeing with the status —
+    // and stops a client choosing when it says the work was submitted.
+    //
+    // No inspector_id filter: the update policy already scopes this to the
+    // caller's own drafts, and adding one here would turn a policy denial into
+    // a filter miss, which reads the same but proves less.
+    final rows = await _client
+        .from('inspections')
+        .update({'status': InspectionStatus.submitted.wire})
+        .eq('id', inspectionId)
+        .select(_columns);
+
+    // The update policy's USING clause requires the OLD row to be a draft the
+    // caller owns. When it does not match, Postgres updates zero rows and
+    // returns success — so an already-submitted inspection, or someone else's,
+    // arrives here as an empty list rather than an error. Treating that as a
+    // successful submit would report frozen work as freshly submitted.
+    if (rows.isEmpty) {
+      throw const NotPermittedException('submit this inspection');
+    }
+    return Inspection.fromRow(rows.first);
+  }
+
   /// One query shape for both, so history and search can never drift apart in
   /// ordering or in which columns they return.
   Future<List<Inspection>> _query(String? tsQuery) async {

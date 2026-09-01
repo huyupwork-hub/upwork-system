@@ -47,6 +47,22 @@ abstract interface class InspectionsRepository {
   /// with RLS — no inspector id is sent from the UI — so a query can only ever
   /// range over rows the caller could already read.
   Future<List<Inspection>> searchMine(String query);
+
+  /// Moves a draft to `submitted`. One way — there is no unsubmit (D10).
+  ///
+  /// Only `status` is sent. `submitted_at` is stamped by the database trigger,
+  /// so the timestamp cannot disagree with the status and a client cannot
+  /// backdate a submission.
+  ///
+  /// Once this returns, the record is frozen (D17): every later write, to the
+  /// inspection or its items, photos and storage objects, is refused by policy
+  /// rather than by the UI. Submitting is also what makes the work visible to a
+  /// reviewer (D3), so it is deliberately not something to do by accident.
+  ///
+  /// Throws [NotPermittedException] if the row was not a draft the caller owns.
+  /// RLS denies this update by matching zero rows rather than raising, so the
+  /// absence of an error is not evidence that anything changed.
+  Future<Inspection> submit(String inspectionId);
 }
 
 class ProfileMissingException implements Exception {

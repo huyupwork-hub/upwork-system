@@ -116,6 +116,7 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
       CupertinoPageRoute<void>(
         builder: (_) => InspectionDetailScreen(
           inspection: inspection,
+          inspections: widget.inspections,
           items: widget.items,
           photos: widget.photos,
           source: widget.source,
@@ -123,6 +124,10 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
         ),
       ),
     );
+    // The detail screen can submit, which changes the row's status. Without
+    // this the list would still show "Draft" for work that is now frozen —
+    // stale in exactly the place the user looks to confirm what they just did.
+    if (mounted) await _load(query: _search.text);
   }
 
   @override

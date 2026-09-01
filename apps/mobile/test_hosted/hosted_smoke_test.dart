@@ -468,10 +468,17 @@ void main() {
   });
 
   test('22. a submitted inspection rejects photo mutation', () async {
-    // Submit, then attempt to attach. D17 must refuse at the database.
-    await clientA
-        .from('inspections')
-        .update({'status': 'submitted'}).eq('id', created!.id);
+    // Submitted through the repository, which is the app's own path. This used
+    // to be a raw .update() here, and that is precisely how the client came to
+    // have no submit action at all while every gate stayed green: the test
+    // reached around the app and proved only that Postgres would allow it.
+    final submitted = await inspectionsA.submit(created!.id);
+    expect(submitted.status, InspectionStatus.submitted);
+    expect(
+      submitted.submittedAt,
+      isNotNull,
+      reason: 'submitted_at is stamped by the trigger, not by the client',
+    );
 
     final status = await clientA
         .from('inspections')
@@ -479,6 +486,15 @@ void main() {
         .eq('id', created!.id)
         .single();
     expect(status['status'], 'submitted', reason: 'the submit itself works');
+
+    // One way (D10): the second attempt matches zero rows under the update
+    // policy, and the repository turns that silence into a refusal rather than
+    // reporting a successful re-submit.
+    await expectLater(
+      inspectionsA.submit(created!.id),
+      throwsA(isA<NotPermittedException>()),
+      reason: 'an already-submitted inspection cannot be submitted again',
+    );
 
     await expectLater(
       photosA.upload(
