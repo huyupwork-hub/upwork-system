@@ -382,6 +382,29 @@ void main() {
     expect(find.byKey(const Key('offline-banner')), findsNothing);
   });
 
+  testWidgets('unreadable local storage is explained, not hidden',
+      (tester) async {
+    // The app stays usable — it renders, it can retry, it can sign out — and it
+    // says plainly that saved work could not be read. What it must not do is
+    // show a confident empty list, because the next save would then overwrite
+    // the bytes it failed to understand (ACCEPTANCE E3).
+    store = MemoryDraftStore('not json at all');
+    wire();
+    await launch(tester);
+
+    final error = tester.widget<Text>(
+      find.byKey(const Key('inspections-error')),
+    );
+    expect(error.data, contains('could not be read'));
+    expect(error.data, contains('Nothing has been deleted'));
+
+    expect(find.byKey(const Key('inspections-empty')), findsNothing);
+    expect(find.text('Try Again'), findsOneWidget);
+
+    // And the bytes are still there for whatever recovery is built later.
+    expect(await store.read(), 'not json at all');
+  });
+
   testWidgets('a failed sync keeps the draft and shows the reason',
       (tester) async {
     await launch(tester);

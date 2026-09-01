@@ -26,6 +26,38 @@ abstract interface class DraftStore {
   Future<void> write(String json);
 }
 
+/// The stored document exists but cannot be decoded.
+///
+/// This is **not** the same condition as "nothing has been saved yet", and
+/// conflating them is the reason this type exists. An earlier version of the
+/// decoder returned an empty queue on a parse failure, which reads as "you have
+/// no offline drafts" — the app would then carry on, and the next ordinary save
+/// would write a fresh document straight over bytes that still held the
+/// inspector's only copy of their work. That is silent data loss, and it
+/// contradicts the accepted contract in ACCEPTANCE E3: *no local change is
+/// discarded without an explicit user action.*
+///
+/// So the failure is raised, not absorbed. The raw value is left untouched, the
+/// queue refuses to report a state it does not know, and every write is blocked
+/// until something that is allowed to destroy data — a user, deliberately —
+/// says otherwise. There is no automatic recovery here and deliberately no
+/// reset: a reset is the destructive action, and nothing in this file is
+/// entitled to take it.
+class DraftStoreUnreadableException implements Exception {
+  const DraftStoreUnreadableException(this.cause);
+
+  /// The decode failure underneath, kept verbatim. A user who can see
+  /// "Unexpected character" can tell a truncated write from a version mismatch;
+  /// one shown "Storage error" cannot.
+  final Object cause;
+
+  @override
+  String toString() =>
+      'Drafts saved on this device could not be read, so they are not shown. '
+      'Nothing has been deleted — the saved data is left exactly as it is, and '
+      'the app will not save over it. ($cause)';
+}
+
 /// `shared_preferences`, which is already in the dependency graph.
 ///
 /// It arrives transitively with `supabase_flutter`, which uses it to persist the
@@ -75,8 +107,16 @@ class MemoryDraftStore implements DraftStore {
   /// rather than dropping it when persistence fails.
   Object? failWrites;
 
+  /// Set to make [read] throw. Used to prove that a failure which is *not* a
+  /// decode failure propagates untouched rather than being reported as damaged
+  /// user data.
+  Object? failReads;
+
   @override
-  Future<String?> read() async => _document;
+  Future<String?> read() async {
+    if (failReads != null) throw failReads!;
+    return _document;
+  }
 
   @override
   Future<void> write(String json) async {
@@ -102,16 +142,44 @@ class LocalDraftBook {
 
   List<LocalDraft>? _cache;
 
+  /// Set once the stored document has been found to be undecodable.
+  ///
+  /// Remembered rather than re-derived so that the failure is *sticky*: without
+  /// it, one caller would see the exception and the next would re-read, and any
+  /// path that happened to swallow the first would leave the queue looking
+  /// merely empty.
+  DraftStoreUnreadableException? _failure;
+
+  /// True when the stored document could not be read. The queue is unusable and
+  /// no write will be accepted.
+  bool get isUnreadable => _failure != null;
+
   /// Every offline-origin draft on this device, oldest first.
   ///
   /// Oldest first because that is the order they are synced in: work is pushed
   /// in the order it was captured.
+  ///
+  /// Throws [DraftStoreUnreadableException] if the stored document exists and
+  /// cannot be decoded. It does **not** return an empty list in that case —
+  /// "unreadable" and "empty" are different answers, and only one of them makes
+  /// it safe to write.
   Future<List<LocalDraft>> all() async {
+    final failure = _failure;
+    if (failure != null) throw failure;
+
     final cached = _cache;
     if (cached != null) return cached;
 
     final raw = await _store.read();
-    final loaded = _decode(raw);
+    final List<LocalDraft> loaded;
+    try {
+      loaded = _decode(raw);
+    } on DraftStoreUnreadableException catch (e) {
+      _failure = e;
+      // Nothing is cached and onChanged is not called: the queue does not
+      // report a state it does not know, and the bytes are not touched.
+      rethrow;
+    }
     _cache = loaded;
     onChanged?.call(loaded);
     return loaded;
@@ -172,7 +240,18 @@ class LocalDraftBook {
     await _commit(drafts);
   }
 
+  /// The only place bytes are written, and the only place the guard has to be.
+  ///
+  /// Every mutation reaches here through [all], which already throws when the
+  /// store is unreadable — so this check is unreachable in practice. It stays
+  /// because the invariant it protects is the expensive one: a write that got
+  /// past a load returning nothing would replace the inspector's only copy of
+  /// their work with an empty document. Stating it here means it cannot be lost
+  /// if a future caller finds another route to a write.
   Future<void> _commit(List<LocalDraft> drafts) async {
+    final failure = _failure;
+    if (failure != null) throw failure;
+
     await _store.write(_encode(drafts));
     _cache = drafts;
     onChanged?.call(drafts);
@@ -181,28 +260,46 @@ class LocalDraftBook {
   static String _encode(List<LocalDraft> drafts) =>
       json.encode(drafts.map((d) => d.toJson()).toList(growable: false));
 
-  /// A document that cannot be parsed yields an empty queue rather than an
-  /// exception that would make the app unusable.
+  /// Nothing stored is an empty queue. Something stored that will not decode is
+  /// an error.
   ///
-  /// The catch is deliberately broad: malformed JSON raises `FormatException`,
-  /// but well-formed JSON of the wrong *shape* raises a `TypeError` out of the
-  /// casts in `fromJson`, and both mean the same thing here. This is the one
-  /// place that choice is made, and it is only reachable if the stored bytes
-  /// were corrupted or written by an incompatible version — the key is versioned
-  /// so the latter does not silently happen.
+  /// The three caught types are exactly the ways *persisted data* can be wrong,
+  /// and no others:
+  ///   * `FormatException` — the bytes are not JSON, or a `DateTime` in them is
+  ///     not a date;
+  ///   * `TypeError` — the JSON is well-formed but the wrong shape, so a cast in
+  ///     `fromJson` fails;
+  ///   * `ArgumentError` — a `severity` or `status` value that no longer exists,
+  ///     which is what `fromWire` raises.
+  ///
+  /// A `StateError`, a `NoSuchMethodError` or anything else propagates
+  /// untouched. Those are bugs in this code, and dressing a bug up as corrupt
+  /// user data would hide it behind a message about the user's storage. That is
+  /// why the earlier `on Object` here was wrong twice over: it swallowed
+  /// programming errors *and* it turned real saved work into an empty list.
   static List<LocalDraft> _decode(String? raw) {
     if (raw == null || raw.isEmpty) return const [];
     try {
       // Typed as Object? rather than left dynamic, so `strict-casts` has
       // something to check and nothing here is an implicit downcast.
       final decoded = json.decode(raw) as Object?;
-      if (decoded is! List<dynamic>) return const [];
+      if (decoded is! List<dynamic>) {
+        // Valid JSON, wrong document. Not an empty queue: something was stored
+        // here and this code cannot account for it.
+        throw DraftStoreUnreadableException(
+          FormatException('expected a JSON list, found ${decoded.runtimeType}'),
+        );
+      }
       return decoded
           .whereType<Map<String, dynamic>>()
           .map(LocalDraft.fromJson)
           .toList(growable: false);
-    } on Object {
-      return const [];
+    } on FormatException catch (e) {
+      throw DraftStoreUnreadableException(e);
+    } on TypeError catch (e) {
+      throw DraftStoreUnreadableException(e);
+    } on ArgumentError catch (e) {
+      throw DraftStoreUnreadableException(e);
     }
   }
 }

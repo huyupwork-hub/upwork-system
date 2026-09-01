@@ -466,6 +466,22 @@ graph — `supabase_flutter` persists the auth session with it — so this decla
 existing plugin rather than adding native code. sqflite or drift would add a schema,
 migrations and a code generator to serialise a handful of unsynced drafts read only as a
 whole, and would invite the local mirror of Supabase that D24 refuses.
+**Unreadable stored bytes are an error, never an empty queue.** The first implementation
+of the decoder absorbed a parse failure and returned `[]`, on the reasoning that a broken
+app is worse than a lost queue. That was wrong, and it contradicted E3 in this slice's own
+acceptance list: an empty queue reads as "you have no offline drafts", the app carries on,
+and the next ordinary save writes a fresh document straight over bytes that still held the
+inspector's only copy of their work. Silent data loss, caused by the recovery.
+`DraftStoreUnreadableException` is raised instead; the raw value is left untouched, the
+failure is remembered so no later caller sees an empty list, and **every write is refused**
+while it stands. The decoder catches only `FormatException`, `TypeError` and
+`ArgumentError` — the three ways *persisted data* can be wrong — so a `StateError` or a
+`NoSuchMethodError` still propagates as the bug it is rather than being reported to the
+user as damaged storage.
+**No recovery UI, and deliberately no reset.** Clearing the store is the destructive
+action, so nothing in the data layer is entitled to take it; if a reset is ever offered it
+is a user's explicit choice, made with the bytes still present. What exists now is the
+honest minimum: preserve, refuse, explain.
 **Offline photos are not in this slice.** ACCEPTANCE E1 mentions them; they are recorded
 as E1b and deferred, because they need a durable local file store (a new `path_provider`
 dependency), deterministic photo ids so a retry cannot duplicate a Storage object, and

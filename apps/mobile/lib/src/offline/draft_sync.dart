@@ -87,7 +87,12 @@ class SyncReport {
 
   final String? lastError;
 
-  bool get isClean => failed.isEmpty;
+  /// Nothing was left behind *and* nothing went wrong.
+  ///
+  /// The second half is not redundant: a run that could not read the queue at
+  /// all has no failed ids to report, and would otherwise describe itself as
+  /// clean while having pushed nothing and knowing nothing.
+  bool get isClean => failed.isEmpty && lastError == null;
 }
 
 /// Pushes offline-origin drafts, once each, in the order they were created.
@@ -131,7 +136,18 @@ class DraftSync {
     _running = true;
     _status.setSyncing(true);
     try {
-      final pending = await _local.ownedBy(userId);
+      final List<LocalDraft> pending;
+      try {
+        pending = await _local.ownedBy(userId);
+      } on DraftStoreUnreadableException catch (e) {
+        // The queue's contents are unknown, so there is nothing honest to push:
+        // syncing "what could be read" would be syncing a guess, and syncing
+        // nothing while reporting success would be worse. Surfaced and
+        // abandoned, with the stored bytes untouched.
+        _status.setLastError(e.toString());
+        return SyncReport(lastError: e.toString());
+      }
+
       final synced = <String>[];
       final failed = <String>[];
       String? lastError;

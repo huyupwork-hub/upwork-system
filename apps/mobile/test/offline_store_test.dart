@@ -135,16 +135,23 @@ void main() {
       await expectLater(book.put(draft()), throwsStateError);
     });
 
-    test('unreadable stored bytes yield an empty queue, not a broken app',
-        () async {
-      expect(await LocalDraftBook(MemoryDraftStore('not json')).all(), isEmpty);
-      // Well-formed JSON of the wrong shape too — that raises out of the casts
-      // in fromJson rather than out of the parser, and means the same thing.
-      expect(
-        await LocalDraftBook(MemoryDraftStore('[{"nope":1}]')).all(),
-        isEmpty,
+    test('an absent store is an empty queue', () async {
+      // The one case that genuinely *is* empty: nothing has ever been written.
+      final store = MemoryDraftStore();
+      expect(await store.read(), isNull);
+      expect(await LocalDraftBook(store).all(), isEmpty);
+      expect(LocalDraftBook(store).isUnreadable, isFalse);
+    });
+
+    test('a corrupt store is not treated as an empty one', () async {
+      // The distinction the whole group below turns on. Returning [] here reads
+      // as "you have no offline drafts", and the next ordinary save would then
+      // write a fresh document over bytes that still held the inspector's only
+      // copy of their work — ACCEPTANCE E3 exactly inverted.
+      await expectLater(
+        LocalDraftBook(MemoryDraftStore('not json at all')).all(),
+        throwsA(isA<DraftStoreUnreadableException>()),
       );
-      expect(await LocalDraftBook(MemoryDraftStore('{}')).all(), isEmpty);
     });
 
     test('onChanged reports the queue after load and after every change',
@@ -158,6 +165,164 @@ void main() {
       await book.remove('draft-1');
 
       expect(seen, [0, 1, 0]);
+    });
+  });
+
+  /// Unreadable persisted data.
+  ///
+  /// The contract under test is ACCEPTANCE E3 — *no local change is discarded
+  /// without an explicit user action* — applied to the case where the app cannot
+  /// understand what it saved. The rule is that it may refuse to work, and may
+  /// not pretend the work was never there.
+  group('a store that cannot be decoded', () {
+    /// Every shape of "something was stored, and it will not decode".
+    final corrupt = <String, String>{
+      'malformed JSON': 'not json at all',
+      'a truncated document': '[{"id":"draft-1","owner_id":',
+      'valid JSON of the wrong shape': '[{"nope":1}]',
+      'a JSON object rather than a list': '{"id":"draft-1"}',
+      'a JSON scalar': '42',
+      'a draft missing a required field': '[{"id":"draft-1"}]',
+      'a severity that no longer exists': '[{"id":"d","owner_id":"u",'
+          '"site_name":"S","inspection_date":"2026-08-20T00:00:00.000",'
+          '"created_at":"2026-08-20T00:00:00.000","state":"local_only",'
+          '"items":[{"id":"i","sort_order":0,"title":"T",'
+          '"severity":"catastrophic","status":"open",'
+          '"created_at":"2026-08-20T00:00:00.000"}]}]',
+      'an unparseable date': '[{"id":"d","owner_id":"u","site_name":"S",'
+          '"inspection_date":"the twentieth","created_at":"2026-08-20T00:00:00.000",'
+          '"state":"local_only","items":[]}]',
+    };
+
+    for (final entry in corrupt.entries) {
+      test('${entry.key} surfaces the typed error', () async {
+        await expectLater(
+          LocalDraftBook(MemoryDraftStore(entry.value)).all(),
+          throwsA(isA<DraftStoreUnreadableException>()),
+        );
+      });
+    }
+
+    test('the message names the underlying cause and promises nothing was lost',
+        () async {
+      final book = LocalDraftBook(MemoryDraftStore('not json at all'));
+      Object? raised;
+      try {
+        await book.all();
+      } catch (e) {
+        raised = e;
+      }
+
+      // Truthful and specific. A user who can see the parse failure can tell a
+      // truncated write from a version mismatch; one shown "Storage error"
+      // cannot.
+      expect(raised, isA<DraftStoreUnreadableException>());
+      expect(raised.toString(), contains('could not be read'));
+      expect(raised.toString(), contains('Nothing has been deleted'));
+      expect(
+        (raised! as DraftStoreUnreadableException).cause,
+        isA<FormatException>(),
+      );
+    });
+
+    test('the raw value is untouched by the failed read', () async {
+      const raw = '[{"id":"draft-1","owner_id":';
+      final store = MemoryDraftStore(raw);
+
+      await expectLater(
+        LocalDraftBook(store).all(),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+
+      // The bytes that could not be understood are still the bytes on disk.
+      // Whatever recovery is ever built has something to recover from.
+      expect(await store.read(), raw);
+    });
+
+    test('a later write cannot overwrite the unreadable store', () async {
+      // The follow-on risk, and the reason returning [] was dangerous rather
+      // than merely wrong: an app that believed the queue was empty would
+      // happily save a new draft, and that save would replace the only copy of
+      // the old one.
+      const raw = 'not json at all';
+      final store = MemoryDraftStore(raw);
+      final book = LocalDraftBook(store);
+
+      await expectLater(
+        book.all(),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+      await expectLater(
+        book.put(draft(id: 'draft-2')),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+      await expectLater(
+        book.remove('draft-1'),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+
+      expect(await store.read(), raw, reason: 'still exactly what was there');
+    });
+
+    test('the failure is sticky, so no later caller sees an empty queue',
+        () async {
+      final book = LocalDraftBook(MemoryDraftStore('not json at all'));
+
+      for (var attempt = 0; attempt < 3; attempt++) {
+        await expectLater(
+          book.all(),
+          throwsA(isA<DraftStoreUnreadableException>()),
+          reason: 'attempt $attempt must fail the same way',
+        );
+      }
+      expect(book.isUnreadable, isTrue);
+    });
+
+    test('ownedBy, byId and containingItem all refuse rather than answer',
+        () async {
+      final book = LocalDraftBook(MemoryDraftStore('not json at all'));
+
+      // Each of these would otherwise answer "no drafts" / "not found", which
+      // is a claim the queue is in no position to make.
+      await expectLater(
+        book.ownedBy('user-1'),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+      await expectLater(
+        book.byId('draft-1'),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+      await expectLater(
+        book.containingItem('item-1'),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+    });
+
+    test('onChanged is never called, so nothing reports the queue as healthy',
+        () async {
+      final seen = <int>[];
+      final book = LocalDraftBook(
+        MemoryDraftStore('not json at all'),
+        onChanged: (d) => seen.add(d.length),
+      );
+
+      await expectLater(
+        book.all(),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+      expect(seen, isEmpty);
+    });
+
+    test('a failure that is not a decode failure propagates untouched',
+        () async {
+      // The decoder catches FormatException, TypeError and ArgumentError,
+      // because those are the three ways *persisted data* can be wrong. A store
+      // that fails outright is a different fault, and reporting it as the user's
+      // saved data being damaged would send them looking in the wrong place —
+      // and would hide a bug behind a message about their device.
+      final store = MemoryDraftStore()..failReads = StateError('bug');
+
+      await expectLater(LocalDraftBook(store).all(), throwsStateError);
     });
   });
 

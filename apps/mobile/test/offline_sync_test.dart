@@ -710,6 +710,79 @@ void main() {
     });
   });
 
+  group('an unreadable local store', () {
+    /// A store whose bytes will not decode, wired into the ordinary objects.
+    void corrupt() {
+      store = MemoryDraftStore('not json at all');
+      build();
+    }
+
+    test('history refuses rather than showing the server rows alone', () async {
+      // Returning just the server-backed rows would report the queue as
+      // healthy: the inspector would see a list that looks complete, with their
+      // unsynced work silently missing from it.
+      corrupt();
+      remoteInspections.rows.add(
+        Inspection(
+          id: 'server-1',
+          inspectorId: 'user-1',
+          siteName: 'Harbour View Apartments',
+          inspectionDate: DateTime(2026, 8, 10),
+          status: InspectionStatus.draft,
+        ),
+      );
+
+      await expectLater(
+        inspections.listMine(),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+      await expectLater(
+        inspections.searchMine('harbour'),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+    });
+
+    test('creating a draft offline does not overwrite the unreadable bytes',
+        () async {
+      corrupt();
+      remoteInspections.failWith = offline;
+
+      await expectLater(
+        inspections.create(northgate()),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+      expect(await store.read(), 'not json at all');
+    });
+
+    test('sync pushes nothing, reports the failure, and is not clean',
+        () async {
+      corrupt();
+
+      final report = await sync.run();
+
+      // Never throws out of a lifecycle callback, but never claims success
+      // either — and `failed` being empty must not read as "all good".
+      expect(report.synced, isEmpty);
+      expect(report.failed, isEmpty);
+      expect(report.isClean, isFalse);
+      expect(report.lastError, contains('could not be read'));
+      expect(status.value.lastError, contains('could not be read'));
+      expect(sink.inspections, isEmpty);
+      expect(await store.read(), 'not json at all');
+    });
+
+    test('an online create still reaches the server', () async {
+      // The queue is broken; the network is not. Refusing an ordinary online
+      // create would punish the inspector for a fault that cannot affect it —
+      // nothing is written locally on this path.
+      corrupt();
+
+      final created = await inspections.create(northgate());
+      expect(remoteInspections.rows.single.id, created.id);
+      expect(await store.read(), 'not json at all');
+    });
+  });
+
   group('isTransportFailure', () {
     test('a PostgREST answer is never an outage', () {
       expect(isTransportFailure(refused), isFalse);
