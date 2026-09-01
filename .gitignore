@@ -43,3 +43,6 @@ apps/mobile/coverage/
 # directory. Never commit it: ~3.7 GB of toolcache, and .credentials holds the
 # runner's auth token.
 /actions-runner/
+
+# Vercel CLI link metadata — machine-local, never committed.
+.vercel/
