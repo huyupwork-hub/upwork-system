@@ -30,10 +30,25 @@ enum DraftSyncState {
   /// silently looks untouched.
   syncing;
 
+  /// Raises on a value this version does not know.
+  ///
+  /// It used to fall back to `localOnly`, which looks harmless — that is the
+  /// safe state to be in — but it is the same silent-normalisation bug as the
+  /// rest: an unknown value means the stored document was written by something
+  /// this build does not understand, and defaulting it lets a later write
+  /// persist this build's guess over whatever was actually recorded.
+  ///
+  /// `ArgumentError` rather than a dedicated type, so it arrives at the queue's
+  /// decoder through the same boundary as an unknown `severity` or `status`
+  /// (`ItemSeverity.fromWire`), which converts it to
+  /// `DraftStoreUnreadableException`. Raising the store's own exception here
+  /// would need `local_draft.dart` to import `draft_store.dart`, which imports
+  /// this file.
   static DraftSyncState fromJson(String value) => switch (value) {
         'local_only' => DraftSyncState.localOnly,
         'syncing' => DraftSyncState.syncing,
-        _ => DraftSyncState.localOnly,
+        _ => throw ArgumentError.value(
+            value, 'state', 'unknown offline draft sync state'),
       };
 
   String get json => switch (this) {
@@ -246,7 +261,14 @@ class LocalDraft {
         createdAt: DateTime.parse(json['created_at'] as String),
         state: DraftSyncState.fromJson(json['state'] as String),
         lastError: json['last_error'] as String?,
-        items: ((json['items'] as List<dynamic>?) ?? const [])
+        // Required, not defaulted. `?? const []` here would decode a document
+        // whose items key this build could not find as a draft with no punch
+        // items, and the next write would make that permanent — the same
+        // disappearing-work bug as filtering the list. `toJson` always writes
+        // the key, so a document without it did not come from this version.
+        // A non-map entry raises a TypeError from the cast rather than being
+        // skipped, for the same reason.
+        items: (json['items'] as List<dynamic>)
             .map((e) => LocalItem.fromJson(e as Map<String, dynamic>))
             .toList(growable: false),
       );

@@ -11,6 +11,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// These tests get at it two ways — by rebuilding the queue over the same bytes,
 /// and by round-tripping through the real `shared_preferences` implementation.
 void main() {
+  // One draft, exactly as LocalDraft.toJson writes it. The readable half of the
+  // partial-decode fixtures, so a test asserting "nothing was returned" is known
+  // to be about the broken entry rather than about the whole document being
+  // unreadable. The control test below proves it decodes on its own.
+  const validDraft = '{"id":"draft-1","owner_id":"user-1",'
+      '"site_name":"Northgate Retail Park","site_address":"4 Northgate Way",'
+      '"client_name":"Cavendish Estates",'
+      '"inspection_date":"2026-08-20T00:00:00.000",'
+      '"created_at":"2026-08-20T09:30:00.000","state":"local_only",'
+      '"last_error":null,"items":[]}';
+
   LocalDraft draft({
     String id = 'draft-1',
     String owner = 'user-1',
@@ -143,6 +154,20 @@ void main() {
       expect(LocalDraftBook(store).isUnreadable, isFalse);
     });
 
+    test('a stored empty string is not the same as an absent store', () async {
+      // null means nothing was ever written. '' means something was written and
+      // it is not JSON. Only the first is an empty queue; collapsing them would
+      // be the original bug with an extra step.
+      final absent = MemoryDraftStore();
+      final empty = MemoryDraftStore('');
+
+      expect(await LocalDraftBook(absent).all(), isEmpty);
+      await expectLater(
+        LocalDraftBook(empty).all(),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+    });
+
     test('a corrupt store is not treated as an empty one', () async {
       // The distinction the whole group below turns on. Returning [] here reads
       // as "you have no offline drafts", and the next ordinary save would then
@@ -178,11 +203,25 @@ void main() {
     /// Every shape of "something was stored, and it will not decode".
     final corrupt = <String, String>{
       'malformed JSON': 'not json at all',
+      'an empty stored document': '',
       'a truncated document': '[{"id":"draft-1","owner_id":',
       'valid JSON of the wrong shape': '[{"nope":1}]',
       'a JSON object rather than a list': '{"id":"draft-1"}',
       'a JSON scalar': '42',
       'a draft missing a required field': '[{"id":"draft-1"}]',
+      'a list entry that is not an object': '[$validDraft,42]',
+      'a list entry that is a bare string': '[$validDraft,"draft-2"]',
+      'a draft with no items key': '[{"id":"d","owner_id":"u","site_name":"S",'
+          '"inspection_date":"2026-08-20T00:00:00.000",'
+          '"created_at":"2026-08-20T00:00:00.000","state":"local_only"}]',
+      'an unknown sync state': '[{"id":"d","owner_id":"u","site_name":"S",'
+          '"inspection_date":"2026-08-20T00:00:00.000",'
+          '"created_at":"2026-08-20T00:00:00.000","state":"paused",'
+          '"items":[]}]',
+      'an item entry that is not an object': '[{"id":"d","owner_id":"u",'
+          '"site_name":"S","inspection_date":"2026-08-20T00:00:00.000",'
+          '"created_at":"2026-08-20T00:00:00.000","state":"local_only",'
+          '"items":[42]}]',
       'a severity that no longer exists': '[{"id":"d","owner_id":"u",'
           '"site_name":"S","inspection_date":"2026-08-20T00:00:00.000",'
           '"created_at":"2026-08-20T00:00:00.000","state":"local_only",'
@@ -223,6 +262,49 @@ void main() {
         (raised! as DraftStoreUnreadableException).cause,
         isA<FormatException>(),
       );
+    });
+
+    test('the control fixture decodes on its own', () async {
+      // So the partial-decode assertions below are known to be about the broken
+      // entry, not about the readable one being broken too.
+      final loaded =
+          await LocalDraftBook(MemoryDraftStore('[$validDraft]')).all();
+      expect(loaded, hasLength(1));
+      expect(loaded.single.id, 'draft-1');
+      expect(loaded.single.siteName, 'Northgate Retail Park');
+    });
+
+    test(
+        'one readable draft beside one unreadable entry yields no queue at all',
+        () async {
+      // The regression that matters most. `whereType` used to drop the entry it
+      // could not understand and hand back a queue of one — and the next
+      // ordinary write would persist that queue, deleting the dropped entry
+      // permanently. Nobody chose to delete it, which is exactly what E3
+      // forbids.
+      const raw = '[$validDraft,42]';
+      final store = MemoryDraftStore(raw);
+      final book = LocalDraftBook(store);
+
+      await expectLater(
+        book.all(),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+
+      // No partial queue is exposed...
+      expect(book.isUnreadable, isTrue);
+      // ...the readable draft is not offered on its own...
+      await expectLater(
+        book.byId('draft-1'),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+      // ...a later mutation cannot rewrite the document without entry 1...
+      await expectLater(
+        book.put(draft(id: 'draft-2')),
+        throwsA(isA<DraftStoreUnreadableException>()),
+      );
+      // ...and the original document is byte-for-byte what it was.
+      expect(await store.read(), raw);
     });
 
     test('the raw value is untouched by the failed read', () async {

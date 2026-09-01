@@ -278,7 +278,16 @@ class LocalDraftBook {
   /// why the earlier `on Object` here was wrong twice over: it swallowed
   /// programming errors *and* it turned real saved work into an empty list.
   static List<LocalDraft> _decode(String? raw) {
-    if (raw == null || raw.isEmpty) return const [];
+    // Null is the only thing that means "nothing was ever written". An empty
+    // string is a value that *was* stored, and it is not valid JSON — treating
+    // it as an empty queue would be the original bug with an extra step.
+    if (raw == null) return const [];
+    if (raw.isEmpty) {
+      throw const DraftStoreUnreadableException(
+        FormatException('the stored document is empty'),
+      );
+    }
+
     try {
       // Typed as Object? rather than left dynamic, so `strict-casts` has
       // something to check and nothing here is an implicit downcast.
@@ -290,10 +299,24 @@ class LocalDraftBook {
           FormatException('expected a JSON list, found ${decoded.runtimeType}'),
         );
       }
-      return decoded
-          .whereType<Map<String, dynamic>>()
-          .map(LocalDraft.fromJson)
-          .toList(growable: false);
+
+      // Every entry, or none. The previous `whereType` silently dropped members
+      // that were not draft objects, which meant a document holding one
+      // readable draft and one entry this build did not recognise decoded as a
+      // queue of one — and the next ordinary write persisted that, deleting the
+      // unrecognised entry for good. Filtering is how data disappears without
+      // anyone deciding to delete it.
+      final drafts = <LocalDraft>[];
+      for (var i = 0; i < decoded.length; i++) {
+        final entry = decoded[i];
+        if (entry is! Map<String, dynamic>) {
+          throw DraftStoreUnreadableException(
+            FormatException('entry $i is not a draft object'),
+          );
+        }
+        drafts.add(LocalDraft.fromJson(entry));
+      }
+      return List.of(drafts, growable: false);
     } on FormatException catch (e) {
       throw DraftStoreUnreadableException(e);
     } on TypeError catch (e) {

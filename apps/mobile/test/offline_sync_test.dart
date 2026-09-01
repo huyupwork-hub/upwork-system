@@ -771,6 +771,30 @@ void main() {
       expect(await store.read(), 'not json at all');
     });
 
+    test('a document with one readable and one unreadable draft syncs nothing',
+        () async {
+      // Partial decode would have been worse here than in history: sync retires
+      // local records after a successful push, so a queue silently missing an
+      // entry would have written the document back without it.
+      store = MemoryDraftStore(
+        '[{"id":"draft-1","owner_id":"user-1","site_name":"Northgate",'
+        '"site_address":null,"client_name":null,'
+        '"inspection_date":"2026-08-20T00:00:00.000",'
+        '"created_at":"2026-08-20T09:30:00.000","state":"local_only",'
+        '"last_error":null,"items":[]},42]',
+      );
+      final raw = await store.read();
+      build();
+
+      final report = await sync.run();
+
+      expect(report.isClean, isFalse);
+      expect(report.lastError, contains('could not be read'));
+      expect(sink.inspections, isEmpty,
+          reason: 'not even the readable draft is pushed');
+      expect(await store.read(), raw);
+    });
+
     test('an online create still reaches the server', () async {
       // The queue is broken; the network is not. Refusing an ordinary online
       // create would punish the inspector for a fault that cannot affect it —
