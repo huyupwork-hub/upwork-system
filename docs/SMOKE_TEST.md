@@ -149,47 +149,119 @@ inspection on purpose, submit is one-way (D10), and the delete policy requires
 succeeded silently, leaving one `SMOKE … do-not-keep` row in the shared project
 per CI run. Six had accumulated before anyone looked at the demo queue.
 
-The fix is `apps/mobile/tool/smoke_purge.dart`, run as a separate workflow step:
+### Where the privileged key lives
 
-| | |
-| --- | --- |
-| **Runs** | `if: always()`, after the test step, so a run that fails halfway still cleans up |
-| **Scope** | exact ids from the manifest the run writes as it creates them, plus a name sweep bounded by **both** the `SMOKE ` prefix and the run's own token |
-| **Never** | deletes by owner, by date, by status, or by anything unbounded |
-| **Proof** | re-reads after deleting and exits non-zero if anything remains |
-| **Touches** | no migration, no policy, no application code |
+Two jobs in this workflow, one boundary between them.
 
-The manifest (`build/smoke-manifest.json`) is flushed on every registration, not
-at the end, because the run it exists for is the one that dies halfway. Storage
-objects are deleted *before* their inspection row: an object's delete policy
-reaches through the owning inspection, so removing the row first strands the
-bytes beyond any client's reach — which is how the orphaned objects already in
-this project came to exist.
+| Job | Environment | Holds the key |
+| --- | --- | --- |
+| `smoke` | none | **No.** `ci.yml` passes six secrets by name and this is not one of them. The test also decodes the key it is given and refuses to start unless the claim is `anon`. |
+| `cleanup` | `hosted-smoke-cleanup` | **Yes, and only here.** |
 
-Case 38 is the regression guard. It asks the server which of the run's rows are
-still standing and requires the answer to be exactly one — the deliberately
-submitted inspection. A fixture added later without cleanup fails it.
+No other job in the repository — Database + RLS, Mobile, Admin, Secret hygiene —
+names a privileged secret at all.
+
+The boundary holds only while the secret exists **solely** as an environment
+secret. A repository-level secret of the same name resolves in any job that
+names it, which is why the setup below deletes one if it is there.
+
+### Scope
+
+Explicit identifiers, and nothing else:
+
+- inspection ids, item ids and storage object paths the run recorded **as it
+  created each one**; or
+- the same three named on the command line, for the one-off below.
+
+There is no pattern match anywhere in the script: no delete by name, owner,
+date, status or prefix. A missing or stale manifest deletes nothing — a cleanup
+that cannot name its target does not guess.
+
+Storage objects go through the **Storage API, never SQL**. Postgres refuses a
+direct delete from `storage.objects` (`protect_delete()`), because removing the
+row would leave the backing file behind for good.
+
+Ordering is objects, then items, then inspections. Deleting the row first
+strands the bytes: the object's own delete policy reaches through the owning
+inspection, so afterwards nothing can reach it — which is how the orphans below
+were made.
+
+The manifest is flushed on every registration rather than at the end, because
+the run it exists for is the one that dies halfway. It crosses between the two
+jobs as a build artifact and holds UUIDs and storage paths only — no
+credentials, no user data.
+
+Case 38 is the regression guard. It asks the server which of the run's rows and
+items are still standing and requires the answer to be exactly one inspection
+and its one item — the pair case 22 and 23 prove cannot be deleted. A fixture
+added later without cleanup fails it.
 
 ### Enabling it
 
-The step needs one secret the repository has never had. Until it is set the
-script prints a warning and exits 0, so a fork or a fresh clone is not
-permanently red — but the row is not removed either.
+Two settings. The value never has to reach a shell history or a transcript:
+`gh secret set` prompts for it.
 
 ```
-gh secret set SUPABASE_SERVICE_ROLE_KEY --repo <owner>/<repo>
+# 1. the environment (already created; harmless to repeat)
+gh api --method PUT repos/<owner>/<repo>/environments/hosted-smoke-cleanup
+
+# 2. the key, scoped to that environment and nowhere else
+gh secret set SUPABASE_SERVICE_ROLE_KEY --env hosted-smoke-cleanup --repo <owner>/<repo>
+
+# 3. remove any repository-level copy, or the boundary is decoration
+gh secret delete SUPABASE_SERVICE_ROLE_KEY --repo <owner>/<repo>
 ```
 
-`gh secret set` prompts for the value rather than taking it as an argument, so
-the key never reaches a shell history, a process list, or a transcript. Get it
-from the Supabase dashboard under Project Settings → API Keys.
+Get the key from the Supabase dashboard under Project Settings → API Keys.
+Until it is set the cleanup job warns and exits 0, so a fork or a fresh clone is
+not permanently red — but the row is not removed either.
 
-The key is used by this one step and nowhere else. It is not available to the
-test, to the app, to the admin console, or to any other job. If you would rather
-not hold one at all, the alternative is a `security definer` function allow-listed
-to the two smoke accounts — rejected here because it is a permanent privileged
-object in the production database and it would let those accounts delete their own
-submitted rows, which is a real if narrow exception to immutability.
+Optional hardening, both scoped to the cleanup job alone: required reviewers on
+the environment, or a deployment branch policy limiting which branches may use
+it.
+
+### One-off cleanup
+
+The same audited script, with targets named on the command line instead of read
+from a manifest. Use it for artefacts no run recorded.
+
+```
+cd apps/mobile
+export SUPABASE_URL=https://<ref>.supabase.co
+read -rs SUPABASE_SERVICE_ROLE_KEY && export SUPABASE_SERVICE_ROLE_KEY
+
+dart run tool/smoke_purge.dart \
+  --object 'd71ee5ce-4668-4354-aadc-e0ec8f4b4b81/553e786f-41f8-4b6b-bbee-fe7acbbe2562/53e9e7e8-2cc8-43e5-88c8-ddc5ebb4bbf6/67a94794-3213-49db-9764-e0e475f4dd02.png' \
+  --object 'd71ee5ce-4668-4354-aadc-e0ec8f4b4b81/55010928-4a27-48e5-9162-cca67769b662/9eaec459-150b-44d8-92a8-255a59dfc865/2c3b9aae-0828-4226-ac88-a6f5b6a65065.jpg'
+```
+
+Those two objects are orphans: their parent inspections no longer exist and
+neither has an `item_photos` row, so no client can list, sign or delete them.
+67 bytes and 134,595 bytes. The first is the smoke test's own `_tinyPng`
+fixture; the second is a real photo from the device QA in `docs/ACCEPTANCE.md`.
+
+The device-QA inspection is a separate call, and one to make deliberately:
+
+```
+dart run tool/smoke_purge.dart \
+  --item 3f0be5a6-f31a-4309-857c-ae815895f5fc \
+  --inspection 41c43817-5907-4b4a-b39f-26c6c7d32964
+```
+
+Verified before writing those ids down, because deleting the wrong record here
+is not recoverable:
+
+| Check | Result |
+| --- | --- |
+| `ACCEPTANCE.md` case 23 | `Device QA Persistence 123726` + one `High` item in `Boiler room` |
+| Row `41c43817-…` | that exact name, address `9 Persistence Road`, client `Persistence QA Client` |
+| Its one item `3f0be5a6-…` | `High`, area `Boiler room` — matches the record |
+| Owner | `fieldproof-smoke-a`, the test account — **not** `Dana Okonjo`, who owns the demo records |
+
+It is a QA artefact, not a portfolio record. It is also still visible in the
+public demo queue, which is the reason to remove it — but it is evidence for an
+acceptance case, so removing it is a judgement call rather than housekeeping.
+
 ---
 
 ## Verified
