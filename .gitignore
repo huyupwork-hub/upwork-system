@@ -46,3 +46,14 @@ apps/mobile/coverage/
 
 # Vercel CLI link metadata — machine-local, never committed.
 .vercel/
+
+# Flutter dependency lock. This repository has never held one: CI resolves from
+# pubspec.yaml on every run, and the version that matters is the one the CI
+# Flutter picks. A lock file committed by accident is worse than none — one got
+# in here written by a standalone Dart 3.6.2 running `dart run` from the repo
+# root, pinning pdf 3.12.0 against a toolchain that resolves 3.13.0, and CI
+# honoured it and failed to analyze code that had not changed.
+#
+# If a lock is ever wanted deliberately, delete this rule and generate it with
+# the same Flutter version CI uses — do not let a stray `dart run` write it.
+apps/mobile/pubspec.lock
