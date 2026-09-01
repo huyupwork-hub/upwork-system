@@ -286,6 +286,18 @@ delete would resurrect a photo the user asked to remove, so it is not attempted.
 `{inspector}/{inspection}/{item}/{photo}.{ext}` — and is recomputable from the metadata, so
 a reclaim pass can be written later without any bookkeeping added now. A queue would be a
 subsystem to maintain in exchange for tidying something nothing can see.
+**One clause above is wrong, and the demo-deployment cleanup proved it.** "Recomputable from
+the metadata" holds only while the metadata row exists. Deleting an inspection cascades
+`item_photos` away, so any object under it becomes an orphan whose path is recoverable *only*
+by listing `storage.objects` — there is nothing left to recompute it from. Worse, the object
+is then unreachable through the ordinary authenticated path in both directions: the delete
+policy requires segment [2] to name a **draft the caller still owns**, and a deleted parent
+satisfies neither half, so not even the owner can reclaim it. The hosted project currently
+holds two such orphans totalling 134,662 bytes, left by the smoke suite and by device QA.
+They are invisible to every application query and cost nothing but storage; removing them
+needs the dashboard or a service-role key, which is a deliberate operator action rather than
+something the app should be able to do. A future reclaim pass must therefore enumerate the
+bucket rather than walk the metadata, which is the opposite of what this decision assumed.
 **Testability is why the ports exist:** `PhotoObjectStore` and `PhotoMetadataStore` are two
 narrow interfaces so `photo_workflow_test.dart` can force "the metadata insert failed" and
 observe the compensation. A test that cannot force that proves nothing about the ordering.
