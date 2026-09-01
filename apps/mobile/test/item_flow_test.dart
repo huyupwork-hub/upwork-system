@@ -6,6 +6,7 @@ import 'package:fieldproof/src/report/report_service.dart';
 import 'package:fieldproof/src/ui/app.dart';
 import 'package:fieldproof/src/ui/inspection_detail_screen.dart';
 import 'package:fieldproof/src/ui/item_editor_sheet.dart';
+import 'package:fieldproof/src/ui/photo_strip.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -312,7 +313,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ItemEditorSheet), findsOneWidget);
-      expect(find.text('Edit Item'), findsOneWidget);
+      expect(find.text('Edit Finding'), findsOneWidget);
       // Scrolled into view because the sheet's ListView builds lazily and the
       // Photos section pushes the action buttons past the viewport.
       await tester.ensureVisible(find.byKey(const Key('delete-item-button')));
@@ -395,6 +396,90 @@ void main() {
 
       expect(items.deleted, isEmpty);
       expect(items.rows, hasLength(1));
+    });
+  });
+
+  /// The presentation added by the Figma parity pass.
+  ///
+  /// The editor gained no fields and no capability — it explains the two
+  /// choices that were already there. What is worth pinning is that the
+  /// explanations track the actual selection, so they cannot drift into
+  /// describing a state the sheet is not in.
+  group('finding editor presentation', () {
+    String hint(WidgetTester tester, String key) =>
+        tester.widget<Text>(find.byKey(Key(key))).data!;
+
+    testWidgets('the severity hint follows the level that is selected',
+        (tester) async {
+      await openDetail(tester);
+      await openEditor(tester);
+
+      // Medium is the default, and the hint must be describing it — not a
+      // fixed sentence that happens to sit under the control.
+      expect(hint(tester, 'severity-hint'), contains('Schedule a repair'));
+
+      await tester.tap(find.text('Critical'));
+      await tester.pumpAndSettle();
+      expect(hint(tester, 'severity-hint'), contains('Unsafe now'));
+
+      await tester.tap(find.text('Low'));
+      await tester.pumpAndSettle();
+      expect(hint(tester, 'severity-hint'), contains('Cosmetic'));
+    });
+
+    testWidgets('a new finding explains that photos come after saving',
+        (tester) async {
+      await openDetail(tester);
+      await openEditor(tester);
+
+      await tester.ensureVisible(find.byKey(const Key('photos-after-save')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('photos-after-save')), findsOneWidget);
+
+      // The distinction this pass turns on: photo capture is built and works,
+      // so this must read as a sequencing rule, not as a missing integration.
+      // "Requires" is the word reserved for capabilities that genuinely do not
+      // exist, and it must not appear here.
+      expect(find.textContaining('Requires'), findsNothing);
+    });
+
+    testWidgets('an existing finding gets the photo strip, not the note',
+        (tester) async {
+      await openDetail(tester);
+      await openEditor(tester);
+      await tester.enterText(
+        find.byType(CupertinoTextField).at(0),
+        'Fire door does not latch',
+      );
+      await save(tester);
+
+      await tester.tap(find.text('Fire door does not latch'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('photos-after-save')), findsNothing);
+      expect(find.byType(PhotoStrip), findsOneWidget);
+    });
+
+    testWidgets('the status hint follows the switch', (tester) async {
+      await openDetail(tester);
+      await openEditor(tester);
+      await tester.enterText(
+        find.byType(CupertinoTextField).at(0),
+        'Fire door does not latch',
+      );
+      await save(tester);
+
+      await tester.tap(find.text('Fire door does not latch'));
+      await tester.pumpAndSettle();
+      expect(
+          hint(tester, 'status-hint'), contains('Open findings are counted'));
+
+      final switchFinder = find.byKey(const Key('item-resolved-switch'));
+      await tester.ensureVisible(switchFinder);
+      await tester.pumpAndSettle();
+      await tester.tap(switchFinder);
+      await tester.pumpAndSettle();
+      expect(hint(tester, 'status-hint'), contains('stay in the report'));
     });
   });
 }

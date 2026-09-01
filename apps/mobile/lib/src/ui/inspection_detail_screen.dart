@@ -153,7 +153,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
         title: const Text('Submit this inspection?'),
         message: const Text(
           'It becomes a permanent record: you will not be able to change it, '
-          'add items or photos, or return it to draft. Reviewers can see it '
+          'add findings or photos, or return it to draft. Reviewers can see it '
           'once submitted.',
         ),
         actions: [
@@ -568,8 +568,8 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
         child: Text(
           // Don't invite a tap the screen cannot honour.
           _isEditable
-              ? 'No items yet.\nTap + to add the first defect.'
-              : 'No items were recorded.',
+              ? 'No findings yet.\nTap + to record the first one.'
+              : 'No findings were recorded.',
           key: const Key('items-empty'),
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 17, color: AppColors.label2),
