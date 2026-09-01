@@ -71,22 +71,22 @@ capture) is deferred with its reason recorded in D27, not quietly dropped.
 
 | # | Criterion | Evidence |
 |---|---|---|
-| E1a | ☐ With the server unreachable, an inspector creates a draft inspection and adds, edits and deletes its punch items. | `offline_flow_test.dart` — the same New Inspection sheet and the same punch-list editor, driven through the widget tree with the remote repository failing · `offline_sync_test.dart` covers add/edit/delete at the repository |
+| E1a | ☑ With the server unreachable, an inspector creates a draft inspection and adds, edits and deletes its punch items. | `offline_flow_test.dart` — the same New Inspection sheet and the same punch-list editor, driven through the widget tree with the remote repository failing · `offline_sync_test.dart` covers add/edit/delete at the repository |
 | E1b | ☐ **Deferred, not done.** The same, with photos. | Needs a durable local file store (`path_provider`), deterministic photo ids so a retry cannot duplicate a Storage object, and local-file rendering in the photo strip. D27 records why it is its own slice |
-| E2 | ☐ A local draft survives an app restart. | `offline_flow_test.dart` tears the widget tree down and rebuilds every stateful object over the same stored bytes · `offline_store_test.dart` reconstructs the queue from bytes alone, and round-trips through the real `shared_preferences` implementation |
-| E3 | ☐ No local change is discarded without an explicit user action. | `offline_sync_test.dart` — a failed push keeps the draft *and* its items, with the reason attached, across reconstruction; a failed write surfaces rather than reporting a save that did not happen; the local record is removed in exactly one place, after the server has been read back. **And the case that first got this wrong:** a stored document that will not decode raises `DraftStoreUnreadableException` instead of reading as an empty queue — `offline_store_test.dart` proves the raw bytes survive the failed read, that no later write can replace them, and that the failure is sticky so no caller sees an empty list; `offline_flow_test.dart` proves the app stays usable and says so |
-| E4 | ☐ Draft state is visibly distinguishable from synced state in the UI. | A `Not synced` pill beside `Draft`, and the offline banner — both asserted in `offline_flow_test.dart`. Screenshot from real-device QA |
+| E2 | ☑ A local draft survives an app restart. | `offline_flow_test.dart` tears the widget tree down and rebuilds every stateful object over the same stored bytes · `offline_store_test.dart` reconstructs the queue from bytes alone, and round-trips through the real `shared_preferences` implementation |
+| E3 | ☑ No local change is discarded without an explicit user action. | `offline_sync_test.dart` — a failed push keeps the draft *and* its items, with the reason attached, across reconstruction; a failed write surfaces rather than reporting a save that did not happen; the local record is removed in exactly one place, after the server has been read back. **And the case that first got this wrong:** a stored document that will not decode raises `DraftStoreUnreadableException` instead of reading as an empty queue — `offline_store_test.dart` proves the raw bytes survive the failed read, that no later write can replace them, and that the failure is sticky so no caller sees an empty list; `offline_flow_test.dart` proves the app stays usable and says so |
+| E4 | ☑ Draft state is visibly distinguishable from synced state in the UI. | A `Not synced` pill beside `Draft`, and the offline banner — both asserted in `offline_flow_test.dart`. Screenshot from real-device QA |
 
 ## F. Synchronization
 
 | # | Criterion | Evidence |
 |---|---|---|
-| F1 | ☐ On reconnect, pending drafts push to Supabase and are marked synced. | `offline_flow_test.dart` — Retry, and reopening the app, both push the queue and clear the marker · hosted smoke case 30 pushes an offline-origin draft to the real project through the production `SupabaseDraftSink`. "Marked synced" is a **deletion**, not a flag (D27) |
-| F2 | ☐ Sync is idempotent — running it twice produces no duplicate rows. | pgTAP `050` at the database level, now covering the merge-upsert the client actually sends as well as `DO NOTHING` · `offline_sync_test.dart` at the repository · **hosted smoke case 33** replays the push against real Supabase and asserts one inspection and two items |
-| F3 | ☐ An interrupted sync resumes without data loss or duplication. | `offline_sync_test.dart` — the parent lands, the items fail, the retry produces one of each; an item deleted locally between attempts is pruned from the server; a write that reports success but cannot be read back is treated as a failure, because RLS refuses silently |
-| F4 | ☐ Sync failures surface to the user; they are never swallowed. | `offline_flow_test.dart` renders the underlying error verbatim in the banner and keeps the draft · `offline_sync_test.dart` asserts the status carries it |
-| F5 | ☐ An unsynced draft cannot be submitted, and never looks submitted. | `offline_sync_test.dart` — `submit` raises `DraftNotSyncedException` and the record stays a local draft · `offline_flow_test.dart` — the Submit control is absent and the reason is shown · `offline_store_test.dart` — a local record has no code path to `submitted` |
-| F6 | ☐ Ownership survives the queue: it comes from the session and RLS, never from stored bytes. | `offline_sync_test.dart` — no session pushes nothing and loses nothing; a different session does not push another inspector's work · **hosted smoke case 35** — user B's queue holding A's id is refused by real RLS, and A's row is unchanged · pgTAP `050` — a merge cannot reassign `inspector_id` or land on another inspector's row |
+| F1 | ☑ On reconnect, pending drafts push to Supabase and are marked synced. | `offline_flow_test.dart` — Retry, and reopening the app, both push the queue and clear the marker · hosted smoke case 30 pushes an offline-origin draft to the real project through the production `SupabaseDraftSink`. "Marked synced" is a **deletion**, not a flag (D27) |
+| F2 | ☑ Sync is idempotent — running it twice produces no duplicate rows. | pgTAP `050` at the database level, now covering the merge-upsert the client actually sends as well as `DO NOTHING` · `offline_sync_test.dart` at the repository · **hosted smoke case 33** replays the push against real Supabase and asserts one inspection and two items |
+| F3 | ☑ An interrupted sync resumes without data loss or duplication. | `offline_sync_test.dart` — the parent lands, the items fail, the retry produces one of each; an item deleted locally between attempts is pruned from the server; a write that reports success but cannot be read back is treated as a failure, because RLS refuses silently |
+| F4 | ☑ Sync failures surface to the user; they are never swallowed. | `offline_flow_test.dart` renders the underlying error verbatim in the banner and keeps the draft · `offline_sync_test.dart` asserts the status carries it |
+| F5 | ☑ An unsynced draft cannot be submitted, and never looks submitted. | `offline_sync_test.dart` — `submit` raises `DraftNotSyncedException` and the record stays a local draft · `offline_flow_test.dart` — the Submit control is absent and the reason is shown · `offline_store_test.dart` — a local record has no code path to `submitted` |
+| F6 | ☑ Ownership survives the queue: it comes from the session and RLS, never from stored bytes. | `offline_sync_test.dart` — no session pushes nothing and loses nothing; a different session does not push another inspector's work · **hosted smoke case 35** — user B's queue holding A's id is refused by real RLS, and A's row is unchanged · pgTAP `050` — a merge cannot reassign `inspector_id` or land on another inspector's row |
 
 ## G. PDF
 
@@ -743,3 +743,83 @@ The hosted project holds 11+ `SMOKE … do-not-keep` submitted rows. Each smoke 
 inspection to exercise D17, and D17 then correctly forbids its owner from ever deleting it.
 This is the immutability contract working, not a defect. Recorded as follow-up: any fix must
 preserve D17 — no admin delete, no unsubmit, no privileged cleanup from the application.
+
+---
+
+## Slice complete — Offline new-draft capture and idempotent sync (D5, D24–D27)
+
+**CI: run [`33495414789`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33495414789)
+at `b56f122` — all six jobs green.** Numbers read from that run's logs, not estimated:
+
+```
+dart format         45 files (0 changed)
+flutter analyze     No issues found!
+flutter test        266 tests passed.        (162 before this slice)
+release APK         Built app-release.apk (56.4MB)
+pgTAP               010–090 green, incl. the new 050 merge-upsert assertions
+hosted smoke        37/37, incl. new cases 30–37
+admin               lint · typecheck · tests · production build · bundle hygiene
+```
+
+**No migration was added.** The existing policies already permitted the exact write the
+sync performs; `050` gained assertions rather than the schema gaining columns.
+
+### Real-device QA — Redmi Note 10 Pro (M2101K6G, Android 11, SDK 30)
+
+APK installed from the CI artifact of the green run
+(`fieldproof-android-81cb6b4…`, SHA-256 `f253eaca125da66a…`, verified identical on the
+build box and the workstation). Every step below was performed on hardware and read from a
+screenshot; none is inferred from CI.
+
+| # | Step | Result |
+|---|---|---|
+| 1–2 | Sign in online, session established | ✅ history loads from hosted Supabase; no banner, no pill — the queue is genuinely empty on a clean install |
+| 3 | Disable network | ✅ `airplane_mode_on=1`, `ping 8.8.8.8` → *Network is unreachable*, DNS → *unknown host*. Verified unreachable, not merely toggled |
+| 4 | Create a uniquely named draft offline | ✅ `QA174821 Depot` · banner: *"Offline. 1 draft saved on this device, and only those are shown."* · row carries **both** `Not synced` and `Draft` |
+| 5 | Add a punch item offline | ✅ `Cracked pane` / `Stairwell` / `High` |
+| 6 | Kill the app | ✅ pid `14852` → `[]` → `16233`. A real process death, not a backgrounding |
+| 7–8 | Reopen **while still offline**; draft and item still there | ✅ **This is the step that failed before the fix.** Draft and item both present, error shown inside the banner without blocking the list |
+| 9 | Visibly unsynced | ✅ `Not synced` pill; detail screen shows *"Saved on this device. It can be submitted once it has synced"* **in place of** the Submit button |
+| 10–11 | Re-enable network, trigger sync | ✅ via the banner's Retry |
+| 12 | Becomes an ordinary server-backed Draft | ✅ `Not synced` pill gone, banner gone, `Draft` remains |
+| 13 | No duplicate | ✅ exactly one row in the merged history |
+| 14 | History/search finds exactly one | ✅ by site (`QA174821`) and by client (`cavendish`) — one result each |
+| 16 | Submit through the **existing** online flow | ✅ the Submit button is present only after sync; confirmation names both consequences; `Status: Submitted` |
+| 17 | Immutability afterwards | ✅ lock notice, add-item action gone and replaced by the report action, item row no longer tappable |
+
+Step 15 (querying the hosted DB directly for the same id) was not performed separately —
+hosted smoke cases 30–37 already prove that path against the same project on every run.
+
+**UTF-8 round-trip, unplanned but useful.** The device keyboard autocorrected the address
+to `12 Báement Lane`. The non-ASCII character survived JSON → `shared_preferences` →
+process death → merge-upsert → Postgres → read-back unchanged, which is stronger evidence
+than the ASCII string that was intended.
+
+### The defect this QA found, and closed
+
+The first pass **failed at step 7**. Reopening the app offline showed a raw DNS error and
+**no inspections at all** — the draft was safely on disk and completely unreachable, which
+to an inspector is indistinguishable from having lost it. `InspectionsScreen` loaded the
+`profiles` row before the history, and that call goes straight to PostgREST; signing in
+online leaves the profile warm in memory, so nothing showed until a cold start with no
+connection. The `+` action was gated on the same profile, so creating a draft offline was
+dead too.
+
+263 passing tests missed it because `FakeProfileRepository` had no unreachable mode — the
+inspections fake had been given one and the profile fake had not, so every "offline" test
+ran half-connected. Fixed in `b56f122`; three tests now cover the scenario directly, and
+the QA above is the re-run that passes.
+
+**Residual, recorded not hidden:** the history still waits for the profile *attempt* to
+finish before rendering, so a slow-failing DNS lookup delays the list — about 30 s on this
+device under airplane mode, after which everything appears correctly. No data is at risk
+and nothing is lost; it is a latency fault, not a correctness one. The fix is to render the
+rows as they arrive and fold the profile in separately. **L2 (offline UX polish) stays
+open for it.**
+
+### Device environment restored
+
+IME returned to Laban Key, auto-rotate re-enabled, airplane mode off, the staged APK
+deleted from `/sdcard/Download`. **Google Play Protect was never disabled** — it blocked
+the install as an unknown developer, and the system's own "Tiếp tục cài đặt" path was used
+instead of turning the protection off.
