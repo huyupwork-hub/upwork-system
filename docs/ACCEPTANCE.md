@@ -146,6 +146,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | L3 | ☑ The admin production build succeeds. | Run `33453238838` ✅ — `✓ Compiled successfully`, 7 routes, 87.2 kB shared JS. `/inspections` and `/inspections/[id]` build as `ƒ` (server-rendered on demand), so no page is prerendered holding inspection data. Vercel-compatible; not deployed, since deployment is not part of the accepted workflow |
 | L4 | ☑ Migrations apply cleanly from empty to head. | CI run `d53d066` ✅ |
 | L5 | ☑ CI is green on the default branch. | Run [`33360748640`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33360748640) at `1145a88` — all five main-CI jobs green |
+| L6 | ◐ Real-device QA on Android hardware. | **In progress — see "Real-device QA" below.** Executed on a Redmi Note 10 Pro (Android 11) against the hosted project: install/launch, auth (including refusal paths), create draft, punch item, real camera photo upload and private read, history ordering, **submit through the Flutter UI**, post-submit immutability, list refresh. This gate found and closed a real defect: the app had no submit action at all (see the defect record below). **Still unexecuted:** Admin fidelity against the same record, on-device PDF, search by site/address/client individually, populated-draft survival across process death, and the cross-inspector client-path check. None of these may be inferred from CI, pgTAP or the hosted smoke |
 
 ## M. Portfolio evidence
 
@@ -601,3 +602,99 @@ No server-side PDF (D21 — the Flutter client remains the only thing that gener
 document, and nothing is persisted). No admin CRUD, user or role management, analytics,
 charts, audit-log UI, revision UI, comments or approvals. Real-device QA (L2) and offline
 sync remain ☐.
+
+---
+
+## Real-device QA — in progress, **L2 remains open**
+
+Hardware: **Redmi Note 10 Pro (M2101K6G), Android 11 (SDK 30), 1080×2400 @ 440dpi**, against
+the real hosted Supabase project. Evidence below is separated by how it was obtained,
+because automated coverage is not a substitute for an unexecuted hardware step.
+
+### Defect found and fixed by this QA gate — the app could not submit
+
+**This is the finding that justifies the gate.** Every CI gate was green and the database
+enforced `draft → submitted` correctly, but the Flutter application had **no user-accessible
+submit operation**: `InspectionsRepository` exposed `create`, `listMine` and `searchMine`
+only, and no screen offered the action. The accepted V1 workflow was therefore not
+completable by a person holding the phone.
+
+It survived every automated layer because the *test* reached around the client:
+`hosted_smoke_test.dart` submitted with a raw
+`.update({'status': 'submitted'})` on the Supabase client, proving only that Postgres would
+allow the transition. pgTAP `050` and `070` were likewise correct and likewise blind to it —
+they test the database, and the database was never the problem.
+
+| Evidence | |
+|---|---|
+| Missing before QA | No `submit()` on the repository; no submit control on any screen |
+| Fix | [`278e7d7`](https://github.com/huyupwork-hub/upwork-system/commit/278e7d7) — repository method, confirmation-gated UI, 9 widget tests, list reload on return |
+| Formatting follow-up | [`eebcb2e`](https://github.com/huyupwork-hub/upwork-system/commit/eebcb2e) |
+| Smoke no longer bypasses the client | case 22 calls `inspectionsA.submit(...)` and asserts a second submit is refused |
+| CI | Run [`33465140822`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33465140822) — all six gates green, 162 Flutter tests |
+| Executed on hardware | Submit performed through the real Flutter UI on the Redmi |
+
+No migration and no new pgTAP were needed: `050` already proved the transition and the
+`submitted_at` stamp, `070` the immutability that follows. The gap was purely the client, so
+that is the only layer that changed.
+
+### Proven on real Redmi hardware
+
+Executed on the device, each verified from a screenshot:
+
+| # | Step | Evidence |
+|---|---|---|
+| 1 | APK installs and launches | Artifact `fieldproof-android-eebcb2e…`, sha256 `01a1e535…` |
+| 2 | No sign-up path exists (D13) | Sign-in screen offers email/password only |
+| 3 | Empty-field validation | "Enter your email and password." |
+| 4 | Bad credentials refused | Real GoTrue "Invalid login credentials", no navigation |
+| 5 | Sign in as inspector | Reaches the history list |
+| 6 | History renders and orders | Same-date rows descend by `created_at` (D22) |
+| 7 | Create inspection | Exactly Name/Address/Client; no Template picker; Date and Inspector read-only (D14) |
+| 8 | Add punch item | Severity exactly `Low\|Medium\|High\|Critical`; binary Resolved toggle (D14) |
+| 9 | Real camera photo | Capture → Storage upload → metadata insert → signed-URL thumbnail, private bucket |
+| 10 | Picker cancelled is not a failure | Returns with no photo and no error |
+| 11 | **Submit through the Flutter UI** | Confirmation naming both consequences, then status → Submitted |
+| 12 | Post-submit immutability | Lock notice; submit control gone; `+` replaced by report icon; item row loses its chevron |
+| 13 | List reflects the new status | Row reads `Submitted` on return |
+| 14 | Auth session survives app restart | Relaunch went straight to the list |
+
+The record created and submitted on hardware is **`Device QA Northgate Depot`**
+(2026-09-01, 17 Harbour Way Leeds, Redmi QA Client, one `Critical` item "Exposed wiring at
+junction box" in Plant room, one camera photo).
+
+### Proven against the production Admin build
+
+`next start` on the production build, hosted Supabase, no authenticated session:
+
+| Check | Evidence |
+|---|---|
+| `/inspections` signed out | 307 → `/sign-in` |
+| `/inspections/<id>` signed out | 307 → `/sign-in` — a guessed id does not bypass the gate |
+| `/` signed out | 307 |
+| `/no-access` reachable | 200 |
+| Sign-in page carries no inspection data | 0 references to any record |
+| Production emits its stylesheet | `static/css/…` 5,084 bytes, containing the real tokens |
+
+### Still unexecuted — why L2 stays open
+
+None of the following may be inferred from CI, pgTAP or the hosted smoke:
+
+- **Admin fidelity against `Device QA Northgate Depot`** — appears once in the queue,
+  inspector/client/address/date/submitted-timestamp correct, searchable, detail opens, the
+  `Critical` item with matching area, description and state, photo count, the camera photo
+  rendering through the private signed-URL model, and no mutation control anywhere.
+- **PDF generation on the device** for the submitted inspection, and that it opens on
+  Android with matching metadata, item and photo.
+- **Search by site, by address and by client** individually against the QA record.
+- **A populated draft surviving process death** — the earlier restart proved *auth session*
+  persistence only, before the item/photo lifecycle existed. Needs a separate small draft.
+- **Cross-inspector client-path check** — inspector B signed in on the device cannot see
+  `Device QA Northgate Depot`.
+
+### Maintenance finding — hosted smoke residue
+
+The hosted project holds 11+ `SMOKE … do-not-keep` submitted rows. Each smoke run submits an
+inspection to exercise D17, and D17 then correctly forbids its owner from ever deleting it.
+This is the immutability contract working, not a defect. Recorded as follow-up: any fix must
+preserve D17 — no admin delete, no unsubmit, no privileged cleanup from the application.
