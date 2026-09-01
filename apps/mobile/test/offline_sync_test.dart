@@ -30,7 +30,7 @@ void main() {
   const offline = SocketException('Network is unreachable');
 
   /// What a refusal looks like: the server answered.
-  final refused = PostgrestException(
+  const refused = PostgrestException(
     message: 'new row violates row-level security policy',
     code: '42501',
   );
@@ -447,7 +447,7 @@ void main() {
     });
 
     test('a successful sync retires the local record', () async {
-      final created = await createOffline();
+      await createOffline();
       await sync.run();
 
       expect(await book.all(), isEmpty);
@@ -823,7 +823,8 @@ void main() {
       );
       expect(
         isTransportFailure(
-          AuthApiException('Invalid login credentials', statusCode: '400'),
+          const AuthApiException('Invalid login credentials',
+              statusCode: '400'),
         ),
         isFalse,
       );
