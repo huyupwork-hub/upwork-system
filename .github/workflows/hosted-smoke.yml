@@ -45,4 +45,35 @@ jobs:
           SMOKE_USER_A_PASSWORD: ${{ secrets.SMOKE_USER_A_PASSWORD }}
           SMOKE_USER_B_EMAIL: ${{ secrets.SMOKE_USER_B_EMAIL }}
           SMOKE_USER_B_PASSWORD: ${{ secrets.SMOKE_USER_B_PASSWORD }}
+          # Carried in every fixture name and written into the manifest, so
+          # the cleanup step below can bound its sweep to this run and
+          # nothing else. The run id is unique, reaches both steps without
+          # either telling the other, and makes a leaked row traceable to
+          # the run that made it.
+          SMOKE_RUN_TOKEN: run${{ github.run_id }}x${{ github.run_attempt }}
+          SMOKE_MANIFEST: build/smoke-manifest.json
         run: flutter test test_hosted/ --reporter expanded
+
+      # Runs whatever the test did, because the fixture most likely to be
+      # stranded is the one a failing run created and never reached its own
+      # cleanup for. The manifest is written as rows are created, so a run
+      # that died halfway still names what it made.
+      #
+      # This step is why the leak is fixed rather than merely reduced.
+      # Submit is one-way (D10) and the delete policy requires a draft (D17),
+      # so the inspection case 22 submits on purpose cannot be removed by the
+      # anon key that created it. No policy changes to accommodate that: a
+      # separate step holds a privileged key instead, and the test process
+      # never sees it — the smoke test still refuses to start under anything
+      # but an anon key, which is the property it exists to prove.
+      #
+      # Without the secret the script warns and exits 0, so a fork or a fresh
+      # clone that has never had one is not permanently red.
+      - name: Purge this run's fixtures
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SMOKE_RUN_TOKEN: run${{ github.run_id }}x${{ github.run_attempt }}
+          SMOKE_MANIFEST: build/smoke-manifest.json
+        run: dart run tool/smoke_purge.dart
