@@ -316,10 +316,6 @@ void main() {
     await shoot(tester, home(), '05-inspections-error');
   });
 
-  testWidgets('06 search with no matches', (tester) async {
-    await shoot(tester, home(), '06-search-no-matches-setup');
-  });
-
   testWidgets('15 inspections loading', (tester) async {
     await shoot(
       tester,

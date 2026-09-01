@@ -5,7 +5,7 @@ list of what the tests assert.
 
 ## Mobile — `apps/mobile/tool/render/goldens/`
 
-Fourteen screens rendered from the real widget trees at 390×844 @2x with the
+Sixteen screens rendered from the real widget trees at 390×844 @2x with the
 SDK's Roboto and the Cupertino glyph font registered, so the text and icons are
 the ones the app draws.
 
