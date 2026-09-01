@@ -146,7 +146,7 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 | L3 | ☑ The admin production build succeeds. | Run `33453238838` ✅ — `✓ Compiled successfully`, 7 routes, 87.2 kB shared JS. `/inspections` and `/inspections/[id]` build as `ƒ` (server-rendered on demand), so no page is prerendered holding inspection data. Vercel-compatible; not deployed, since deployment is not part of the accepted workflow |
 | L4 | ☑ Migrations apply cleanly from empty to head. | CI run `d53d066` ✅ |
 | L5 | ☑ CI is green on the default branch. | Run [`33360748640`](https://github.com/huyupwork-hub/upwork-system/actions/runs/33360748640) at `1145a88` — all five main-CI jobs green |
-| L6 | ◐ Real-device QA on Android hardware. | **In progress — see "Real-device QA" below.** Executed on a Redmi Note 10 Pro (Android 11) against the hosted project: install/launch, auth (including refusal paths), create draft, punch item, real camera photo upload and private read, history ordering, **submit through the Flutter UI**, post-submit immutability, list refresh. This gate found and closed a real defect: the app had no submit action at all (see the defect record below). **Still unexecuted:** Admin fidelity against the same record, on-device PDF, search by site/address/client individually, populated-draft survival across process death, and the cross-inspector client-path check. None of these may be inferred from CI, pgTAP or the hosted smoke |
+| L6 | ☑ Real-device QA on Android hardware. | **Complete — see "Real-device QA" below.** Executed across two Android devices (Redmi Note 10 Pro / **SDK 30**, Raspberry Pi 4 running Android 16 / **SDK 36**) against the hosted project, plus the production Admin build in Chrome 150. Every acceptance step was performed and verified from a screenshot or a live DOM query; none is inferred from CI. This gate found and closed a real defect — the app had no submit action at all (see the defect record below) |
 
 ## M. Portfolio evidence
 
@@ -676,21 +676,57 @@ junction box" in Plant room, one camera photo).
 | Sign-in page carries no inspection data | 0 references to any record |
 | Production emits its stylesheet | `static/css/…` 5,084 bytes, containing the real tokens |
 
-### Still unexecuted — why L2 stays open
+### Proven on the Raspberry Pi 4 — Android 16 (SDK 36)
 
-None of the following may be inferred from CI, pgTAP or the hosted smoke:
+A second Android target, deliberately recorded separately from the Redmi rows.
+It is real Android on real hardware, not an emulator, but it is not the phone —
+and the real-camera capture stays Redmi evidence, since a Pi has no camera.
 
-- **Admin fidelity against `Device QA Northgate Depot`** — appears once in the queue,
-  inspector/client/address/date/submitted-timestamp correct, searchable, detail opens, the
-  `Critical` item with matching area, description and state, photo count, the camera photo
-  rendering through the private signed-URL model, and no mutation control anywhere.
-- **PDF generation on the device** for the submitted inspection, and that it opens on
-  Android with matching metadata, item and photo.
-- **Search by site, by address and by client** individually against the QA record.
-- **A populated draft surviving process death** — the earlier restart proved *auth session*
-  persistence only, before the item/photo lifecycle existed. Needs a separate small draft.
-- **Cross-inspector client-path check** — inspector B signed in on the device cannot see
-  `Device QA Northgate Depot`.
+Its value is version coverage the Redmi cannot give: **SDK 30 vs SDK 36**, six
+Android releases apart, from the same APK.
+
+| # | Step | Evidence |
+|---|---|---|
+| 15 | Install and launch on SDK 36 | Same artifact `fieldproof-android-eebcb2e…` |
+| 16 | Sign in; the record created on the Redmi appears | Cross-device data consistency for the same account |
+| 17 | **Search by site** | `Northgate` → exactly 1 result, no duplicates |
+| 18 | **Search by address** | `Harbour Way` (two terms, ANDed) → exactly 1 |
+| 19 | **Search by client** | `Redmi QA Client` (three terms) → exactly 1 |
+| 20 | Submitted detail is read-only | Lock notice; no add/edit/submit; item row has no chevron |
+| 21 | **PDF generates and opens on Android** | Share sheet offers `fieldproof-device-qa-northgate-depot-20260901-55010928.pdf`; Android print preview **renders the document** |
+| 22 | PDF content matches the record | FieldProof header; site, address, client, **inspector `fieldproof-smoke-a`**, **submitted 2026-09-01 03:35 UTC**, inspection id; summary 1 item / 1 open / 1 photo / 1 critical; punch item with **Critical · Open**, `Plant room`, full description; **the Redmi camera photo rendered in place** |
+| 23 | **Populated draft survives process death** | `Device QA Persistence 123726` + one `High` item in `Boiler room`; `am force-stop` verified by PID (2236 → gone); relaunch as PID 3481 |
+| 24 | …with no duplication and no re-login | Exactly one inspection row and one item afterwards; session still valid; still `Draft`, still editable |
+| 25 | Sign out works on device | Returns to the sign-in screen with fields cleared |
+| 26 | **Inspector B cannot see A's submitted work** | Signed in as user B: "No inspections yet."; searching `Northgate` → "No inspections match" — RLS holding through the app's own client path |
+
+### Proven in the production Admin console — Chrome 150
+
+Authenticated as the admin account against `next start` on the production build
+and the hosted project. Verified by live DOM queries, not HTML string matching.
+
+| Check | Evidence |
+|---|---|
+| Admin signs in and lists submitted work | Lands on `/inspections`, **22 rows** |
+| The QA record appears **exactly once** | 1 occurrence of `Device QA Northgate Depot` |
+| Inspector / client / address / date | `fieldproof-smoke-a` · Redmi QA Client · 17 Harbour Way, Leeds · 1 Sep 2026 |
+| Submitted timestamp | **1 Sep 2026, 03:35 UTC** — identical to the PDF and the device |
+| **Drafts are invisible to the admin** | 0 occurrences of `Persistence` and 0 of `Draft`, while that draft demonstrably exists for its owner (D3) |
+| Search locates it | `?q=Harbour Way` → 1 row, 0 SMOKE rows |
+| Detail opens with full fidelity | Critical · Open · `Plant room` · "Cover plate missing - conductors visible"; "1 total, 1 open" |
+| Private photo renders | 1 image from `…supabase.co` with a signing token, **actually decoded at 1536×2048** — a broken URL would report 0×0 |
+| **No mutation controls anywhere** | `button: 0, form: 0, input: 0, select: 0, textarea: 0` on the detail page |
+
+### Environment observation — not a product defect
+
+The console fails with "Application error: a client-side exception has occurred"
+in **LineageOS Jelly on AOSP WebView** (the Pi's only browser). The same build,
+the same account and the same server succeed in **Chrome 150**, and the admin
+credentials and `role = admin` were independently confirmed against Supabase, so
+this is an engine limitation of a stripped-down WebView rather than a fault in
+the console. The console's accepted design targets desktop browsers; AOSP WebView
+is not a target. Recorded rather than fixed, because nothing in the accepted
+contract is violated.
 
 ### Maintenance finding — hosted smoke residue
 
