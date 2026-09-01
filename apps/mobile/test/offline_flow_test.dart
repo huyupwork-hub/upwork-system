@@ -83,6 +83,19 @@ void main() {
 
   tearDown(() => auth.dispose());
 
+  /// Losing the network fails reads as well as writes. Setting only the write
+  /// would leave history quietly succeeding, which is not a state a device can
+  /// actually be in.
+  void goOffline() {
+    remoteInspections.failWith = offline;
+    remoteInspections.readFailsWith = offline;
+  }
+
+  void goOnline() {
+    remoteInspections.failWith = null;
+    remoteInspections.readFailsWith = null;
+  }
+
   /// Signs in and lands on History.
   ///
   /// The default 800x600 viewport is shorter than these screens once a banner
@@ -173,7 +186,7 @@ void main() {
   testWidgets('a draft created with no connection appears in History, marked',
       (tester) async {
     await launch(tester);
-    remoteInspections.failWith = offline;
+    goOffline();
 
     await createInspection(tester);
 
@@ -188,7 +201,7 @@ void main() {
   testWidgets('the banner says what is missing rather than hiding it',
       (tester) async {
     await launch(tester);
-    remoteInspections.failWith = offline;
+    goOffline();
     await createInspection(tester);
 
     final message = tester.widget<Text>(
@@ -212,7 +225,7 @@ void main() {
       'punch items can be added to an offline draft, through the same '
       'editor', (tester) async {
     await launch(tester);
-    remoteInspections.failWith = offline;
+    goOffline();
     await createInspection(tester);
 
     await tester.tap(find.text('Northgate Retail Park'));
@@ -225,7 +238,7 @@ void main() {
   testWidgets('the draft and its items are still there after a relaunch',
       (tester) async {
     await launch(tester);
-    remoteInspections.failWith = offline;
+    goOffline();
     await createInspection(tester);
     await tester.tap(find.text('Northgate Retail Park'));
     await tester.pumpAndSettle();
@@ -252,7 +265,7 @@ void main() {
   testWidgets('search finds an offline draft by site, address and client',
       (tester) async {
     await launch(tester);
-    remoteInspections.failWith = offline;
+    goOffline();
     await createInspection(tester);
 
     final field = find.byKey(const Key('inspections-search'));
@@ -274,7 +287,7 @@ void main() {
   testWidgets('an unsynced draft offers no Submit, and says why',
       (tester) async {
     await launch(tester);
-    remoteInspections.failWith = offline;
+    goOffline();
     await createInspection(tester);
 
     await tester.tap(find.text('Northgate Retail Park'));
@@ -291,13 +304,13 @@ void main() {
   testWidgets('Retry syncs, the marker clears, and the row appears once',
       (tester) async {
     await launch(tester);
-    remoteInspections.failWith = offline;
+    goOffline();
     await createInspection(tester);
     expect(find.byKey(const Key('unsynced-pill')), findsOneWidget);
 
     // The connection returns. The server-backed row is what the reloaded
     // history will read.
-    remoteInspections.failWith = null;
+    goOnline();
     remoteInspections.rows.add(
       Inspection(
         id: (await book.all()).single.id,
@@ -322,10 +335,10 @@ void main() {
   testWidgets('once synced, the ordinary Submit flow is available and works',
       (tester) async {
     await launch(tester);
-    remoteInspections.failWith = offline;
+    goOffline();
     await createInspection(tester);
 
-    remoteInspections.failWith = null;
+    goOnline();
     remoteInspections.rows.add(
       Inspection(
         id: (await book.all()).single.id,
@@ -357,13 +370,13 @@ void main() {
   testWidgets('reopening with a connection pushes the queue unasked',
       (tester) async {
     await launch(tester);
-    remoteInspections.failWith = offline;
+    goOffline();
     await createInspection(tester);
 
     // Signal is back by the time the app is next opened. An inspector should
     // not have to know a queue exists.
     final id = (await book.all()).single.id;
-    remoteInspections.failWith = null;
+    goOnline();
     remoteInspections.rows.add(
       Inspection(
         id: id,
@@ -408,7 +421,7 @@ void main() {
   testWidgets('a failed sync keeps the draft and shows the reason',
       (tester) async {
     await launch(tester);
-    remoteInspections.failWith = offline;
+    goOffline();
     await createInspection(tester);
 
     sink.failInspection = offline;

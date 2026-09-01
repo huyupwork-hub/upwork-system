@@ -88,8 +88,24 @@ void main() {
         inspectionDate: DateTime(2026, 8, 20),
       );
 
-  Future<Inspection> createOffline() {
+  /// Losing the network fails reads as well as writes.
+  ///
+  /// Setting only the write would leave history quietly succeeding, which is
+  /// not a state a device can actually be in — and it would let a test claim
+  /// the app behaves correctly offline while the server was still answering
+  /// half its questions.
+  void goOffline() {
     remoteInspections.failWith = offline;
+    remoteInspections.readFailsWith = offline;
+  }
+
+  void goOnline() {
+    remoteInspections.failWith = null;
+    remoteInspections.readFailsWith = null;
+  }
+
+  Future<Inspection> createOffline() {
+    goOffline();
     return inspections.create(northgate());
   }
 
@@ -123,7 +139,7 @@ void main() {
       // §3: no anonymous offline inspections. Ownership assigned later is
       // ownership guessed later.
       await auth.signOut();
-      remoteInspections.failWith = offline;
+      goOffline();
 
       await expectLater(
         inspections.create(northgate()),
@@ -258,7 +274,7 @@ void main() {
 
     test('a local draft appears in history alongside server rows', () async {
       final created = await createOffline();
-      remoteInspections.failWith = null;
+      goOnline();
 
       final rows = await inspections.listMine();
       expect(rows.map((r) => r.id), [created.id, 'server-1']);
@@ -318,14 +334,14 @@ void main() {
         () async {
       await createOffline();
       await auth.signIn(email: 'a@example.com', password: 'correct-horse');
-      remoteInspections.failWith = null;
+      goOnline();
 
       final rows = await inspections.listMine();
       expect(rows.map((r) => r.id), ['server-1']);
     });
 
     test('the merged history keeps the accepted total order', () async {
-      remoteInspections.failWith = offline;
+      goOffline();
       final older = await inspections.create(
         NewInspection(
           siteName: 'Older',
@@ -338,7 +354,7 @@ void main() {
           inspectionDate: DateTime(2026, 8, 25),
         ),
       );
-      remoteInspections.failWith = null;
+      goOnline();
 
       final rows = await inspections.listMine();
       expect(rows.map((r) => r.id), [newer.id, 'server-1', older.id]);
@@ -366,7 +382,7 @@ void main() {
       await items.create(created.id, const NewInspectionItem(title: 'Pane'));
 
       // The row the server now holds, which the online repository will submit.
-      remoteInspections.failWith = null;
+      goOnline();
       await sync.run();
       remoteInspections.rows.add(
         Inspection(
@@ -462,7 +478,7 @@ void main() {
       final created = await createOffline();
       await sync.run();
 
-      remoteInspections.failWith = null;
+      goOnline();
       remoteInspections.rows.add(
         Inspection(
           id: created.id,
@@ -629,7 +645,7 @@ void main() {
     });
 
     test('one draft failing does not stop the others', () async {
-      remoteInspections.failWith = offline;
+      goOffline();
       final first = await inspections.create(
         NewInspection(siteName: 'First', inspectionDate: DateTime(2026, 8, 1)),
       );
@@ -745,7 +761,7 @@ void main() {
     test('creating a draft offline does not overwrite the unreadable bytes',
         () async {
       corrupt();
-      remoteInspections.failWith = offline;
+      goOffline();
 
       await expectLater(
         inspections.create(northgate()),

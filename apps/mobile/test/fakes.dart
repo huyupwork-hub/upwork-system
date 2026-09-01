@@ -78,14 +78,27 @@ class FakeInspectionsRepository implements InspectionsRepository {
   final String sessionUserId;
 
   /// Every insert payload this repository was asked to persist.
+  ///
+  /// Recorded *before* [failWith] is honoured, because it is the record of what
+  /// was asked, not of what succeeded. A real client builds the request and
+  /// sends it, and only then learns it failed — so a test asserting "the id we
+  /// sent is the id we kept locally" needs the payload of the attempt that
+  /// failed, which is exactly the case that matters for idempotency.
   final List<Map<String, dynamic>> insertPayloads = [];
 
+  /// Set to make `create` throw — the write was refused, or never arrived.
   Object? failWith;
+
+  /// Set to make `listMine` and `searchMine` throw.
+  ///
+  /// Separate from [failWith] because they model different things. An RLS
+  /// refusal rejects the write while reads keep working, which is what
+  /// `app_flow_test` uses [failWith] for. Losing the network fails both, so a
+  /// test that means "offline" sets both.
+  Object? readFailsWith;
 
   @override
   Future<Inspection> create(NewInspection draft, {String? id}) async {
-    if (failWith != null) throw failWith!;
-
     // Mirrors the production path: the owner comes from the session, and the
     // primary key is device-generated — supplied by the caller when it has one,
     // minted here when it does not.
@@ -94,6 +107,8 @@ class FakeInspectionsRepository implements InspectionsRepository {
       id: id ?? 'inspection-${rows.length + 1}',
     );
     insertPayloads.add(payload);
+
+    if (failWith != null) throw failWith!;
 
     final created = Inspection(
       id: payload['id'] as String,
@@ -152,12 +167,14 @@ class FakeInspectionsRepository implements InspectionsRepository {
 
   @override
   Future<List<Inspection>> listMine() async {
+    if (readFailsWith != null) throw readFailsWith!;
     await _wait('');
     return List.unmodifiable(_ordered(rows));
   }
 
   @override
   Future<List<Inspection>> searchMine(String query) async {
+    if (readFailsWith != null) throw readFailsWith!;
     await _wait(query);
     final needle = query.trim().toLowerCase();
     if (needle.isEmpty) return List.unmodifiable(_ordered(rows));
