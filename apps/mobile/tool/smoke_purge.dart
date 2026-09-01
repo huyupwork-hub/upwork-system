@@ -113,6 +113,14 @@ Future<int> _run(List<String> args) async {
   var removedRows = 0;
 
   try {
+    // Prove the key is accepted before touching anything. Learned the hard way:
+    // a key that is present, well-formed and for the *wrong Supabase project*
+    // passes every local check — it decodes as a valid non-anon JWT — and then
+    // fails partway through, after the storage call has already run. One cheap
+    // authenticated read up front turns that into a refusal that changed
+    // nothing.
+    await api.assertUsable();
+
     // Storage first, through the Storage API. Deleting the row first would
     // strand the bytes: the object's own delete policy reaches through the
     // owning inspection, and Postgres refuses a direct delete from
@@ -342,6 +350,29 @@ class _Api {
     final res = await req.close();
     final text = await res.transform(utf8.decoder).join();
     return _Response(res.statusCode, text);
+  }
+
+  /// One authenticated read, purely to find out whether this key is accepted.
+  ///
+  /// Reads a single id it does not use and deletes nothing.
+  Future<void> assertUsable() async {
+    final res = await _send(
+      'GET',
+      Uri.parse('$baseUrl/rest/v1/inspections?select=id&limit=1'),
+    );
+    if (res.status == 401 || res.status == 403) {
+      throw const _ApiException(
+        'the key was refused. It is well-formed and is not an anon key, so the '
+        'usual cause is a key belonging to a different Supabase project than '
+        'SUPABASE_URL points at. Nothing was deleted.',
+      );
+    }
+    if (!res.ok) {
+      throw _ApiException(
+        'preflight read failed -> ${res.status} ${res.body}. '
+        'Nothing was deleted.',
+      );
+    }
   }
 
   /// Deletes one object through the Storage API.
