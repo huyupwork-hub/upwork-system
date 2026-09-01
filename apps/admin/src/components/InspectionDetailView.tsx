@@ -113,6 +113,45 @@ export function InspectionDetailView({ detail }: { detail: InspectionDetail }) {
           </ol>
         )}
       </section>
+
+      {/* The two things this view visibly implies but cannot do. The reviewer
+          console is read-only by design (D3) and generates no document of its
+          own (D21) — saying so is more useful than a disabled button. */}
+      <DependencyNote
+        title="Issue this report to the client"
+        requirement="Requires an email delivery provider"
+      />
+      <DependencyNote
+        title="Raise a work order from a finding"
+        requirement="Requires a contractor2019s work-order integration"
+      />
     </article>
+  );
+}
+
+/**
+ * A capability the design implies and the product does not have.
+ *
+ * Rendered as product copy rather than hidden: a reviewer who expects to press
+ * "send" should find out here, from the interface, rather than by pressing
+ * something that quietly does nothing.
+ */
+function DependencyNote({
+  title,
+  requirement,
+}: {
+  title: string;
+  requirement: string;
+}) {
+  return (
+    <div className="dependency-note" data-testid="dependency-note">
+      <span className="mark" aria-hidden="true">
+        i
+      </span>
+      <span>
+        <span className="title block">{title}</span>
+        <span className="req">{requirement}</span>
+      </span>
+    </div>
   );
 }

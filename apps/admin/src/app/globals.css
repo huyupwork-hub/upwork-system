@@ -249,3 +249,57 @@ a:hover { text-decoration: underline; }
   .detail { padding: 20px; }
   .table th:nth-child(5), .table td:nth-child(5) { display: none; }
 }
+
+/* ── Operational density ──────────────────────────────────────────────────
+   The queue is a work surface, not a database viewer: a reviewer scanning it
+   should be able to tell at a glance which record needs them first. Severity
+   is spelled out beside its colour, never colour alone. */
+.nowrap { white-space: nowrap; }
+
+.sev-counts { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; }
+.sev-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--label);
+  white-space: nowrap;
+}
+.sev-count i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.sev-count.severity-critical i { background: var(--red); }
+.sev-count.severity-high i     { background: var(--orange); }
+.sev-count.severity-medium i   { background: var(--yellow); }
+.sev-count.severity-low i      { background: var(--green); }
+
+/* An unavailable capability, stated rather than hidden. Product copy, not a
+   developer warning — a reviewer should read "this needs an integration",
+   which is true, not "something broke". */
+.dependency-note {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 11px 14px;
+  border: 1px solid var(--separator);
+  border-radius: 10px;
+  background: var(--card);
+  margin-top: 16px;
+}
+.dependency-note .mark {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid var(--label-3);
+  color: var(--label-3);
+  font-size: 10px;
+  line-height: 13px;
+  text-align: center;
+  margin-top: 1px;
+}
+.dependency-note .title { font-size: 14px; font-weight: 500; color: var(--label); }
+.dependency-note .req { font-size: 13px; color: var(--label-2); }
