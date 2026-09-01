@@ -118,20 +118,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Widget _body() {
     if (_error != null) {
-      return Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            Text(
-              _error!,
-              key: const Key('reports-error'),
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 15, color: AppColors.red),
-            ),
-            const SizedBox(height: 16),
-            CupertinoButton(onPressed: _load, child: const Text('Try Again')),
-          ],
-        ),
+      return ErrorState(
+        title: 'Your reports could not be loaded',
+        detail: _error!,
+        detailKey: const Key('reports-error'),
+        onRetry: _load,
       );
     }
 
@@ -259,7 +250,8 @@ class _ReportRow extends StatelessWidget {
                   stageLabel ??
                       [
                         NewInspection.dateOnly(inspection.inspectionDate),
-                        DemoContent.templateFor(inspection.id),
+                        if (inspection.clientName != null)
+                          inspection.clientName!,
                       ].join('  ·  '),
                   style: TextStyle(
                     fontSize: 13,

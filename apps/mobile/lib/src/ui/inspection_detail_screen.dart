@@ -7,6 +7,7 @@ import '../data/repositories.dart';
 import '../report/report_service.dart';
 import '../report/report_snapshot.dart';
 import 'item_editor_sheet.dart';
+import 'offline_banner.dart';
 import 'presentation.dart';
 import 'theme.dart';
 
@@ -265,13 +266,6 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                   label: 'Date',
                   value: NewInspection.dateOnly(i.inspectionDate),
                 ),
-                // Demo content, deterministic per id. There is no template
-                // column and D14 kept templates out of V1 — the prototype
-                // shows one, so it is shown here and marked as what it is.
-                ReadOnlyRow(
-                  label: 'Template',
-                  value: DemoContent.templateFor(i.id),
-                ),
                 ReadOnlyRow(
                   label: 'Status',
                   value: i.status == InspectionStatus.draft
@@ -406,27 +400,6 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                   letterSpacing: 0.4,
                 ),
               ),
-              const Spacer(),
-              if (_isEditable)
-                CupertinoButton(
-                  key: const Key('add-item-inline'),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 3,
-                  ),
-                  minimumSize: Size.zero,
-                  borderRadius: BorderRadius.circular(8),
-                  color: AppColors.blue,
-                  onPressed: () => _edit(),
-                  child: const Text(
-                    'Add',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.card,
-                    ),
-                  ),
-                ),
             ],
           ),
         ),

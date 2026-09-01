@@ -4,6 +4,7 @@ import 'package:fieldproof/src/data/repositories.dart';
 import 'package:fieldproof/src/report/report_loader.dart';
 import 'package:fieldproof/src/report/report_service.dart';
 import 'package:fieldproof/src/ui/app.dart';
+import 'package:fieldproof/src/ui/theme.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -61,6 +62,17 @@ void main() {
 
   setUp(() => build(InspectionStatus.draft));
   tearDown(() => auth.dispose());
+
+  /// A status word as rendered inside a list card, not anywhere on screen.
+  ///
+  /// The parity pass gave the list a filter whose segments are also spelled
+  /// "Drafts"/"Submitted", and a summary strip that counts them. An unscoped
+  /// find.text can therefore match furniture instead of the row, so these
+  /// assertions say which one they mean.
+  Finder statusInCard(String label) => find.descendant(
+        of: find.byType(InsetCard),
+        matching: find.text(label),
+      );
 
   Future<void> openDetail(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1200, 2400);
@@ -203,8 +215,8 @@ void main() {
 
       // Without a reload on return the list would still say Draft for work that
       // is now frozen — stale exactly where the user looks to confirm it.
-      expect(find.text('Submitted'), findsOneWidget);
-      expect(find.text('Draft'), findsNothing);
+      expect(statusInCard('Submitted'), findsOneWidget);
+      expect(statusInCard('Draft'), findsNothing);
     });
   });
 }

@@ -22,7 +22,6 @@ import 'theme.dart';
 class InspectionsScreen extends StatefulWidget {
   const InspectionsScreen({
     super.key,
-    required this.auth,
     required this.profiles,
     required this.inspections,
     required this.items,
@@ -33,7 +32,6 @@ class InspectionsScreen extends StatefulWidget {
     this.onSync,
   });
 
-  final AuthRepository auth;
   final ProfileRepository profiles;
   final InspectionsRepository inspections;
   final InspectionItemsRepository items;
@@ -230,14 +228,6 @@ class _InspectionsScreenState extends State<InspectionsScreen>
             border: const Border(
               bottom: BorderSide(color: AppColors.separator, width: 0.5),
             ),
-            leading: CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: widget.auth.signOut,
-              child: const Text(
-                'Sign Out',
-                style: TextStyle(fontSize: 17, color: AppColors.blue),
-              ),
-            ),
             trailing: CupertinoButton(
               padding: EdgeInsets.zero,
               // Enabled as soon as the screen has loaded, profile or not. It
@@ -329,23 +319,11 @@ class _InspectionsScreenState extends State<InspectionsScreen>
 
   Widget _body() {
     if (_error != null) {
-      return Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            Text(
-              _error!,
-              key: const Key('inspections-error'),
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 15, color: AppColors.red),
-            ),
-            const SizedBox(height: 16),
-            CupertinoButton(
-              onPressed: () => _load(query: _search.text),
-              child: const Text('Try Again'),
-            ),
-          ],
-        ),
+      return ErrorState(
+        title: 'Your inspections could not be loaded',
+        detail: _error!,
+        detailKey: const Key('inspections-error'),
+        onRetry: () => _load(query: _search.text),
       );
     }
 
@@ -480,7 +458,7 @@ class _InspectionsScreenState extends State<InspectionsScreen>
                       Text(
                         profile == null
                             ? 'Field inspector'
-                            : '${_roleLabel(profile.role)} · Field inspection',
+                            : _roleLabel(profile.role),
                         style: const TextStyle(
                           fontSize: 13,
                           color: AppColors.label2,
@@ -649,10 +627,6 @@ class _InspectionRow extends StatelessWidget {
                         child: Text(
                           [
                             NewInspection.dateOnly(inspection.inspectionDate),
-                            // Demo content, deterministic per id: the schema
-                            // has no template column and D14 kept templates
-                            // out of V1.
-                            DemoContent.templateFor(inspection.id),
                             if (client != null) client,
                           ].join('  ·  '),
                           style: const TextStyle(

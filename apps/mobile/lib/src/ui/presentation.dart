@@ -116,37 +116,95 @@ enum InspectionPhase {
       };
 }
 
-/// Deterministic demonstration content, isolated here so it is obvious what is
-/// invented and trivial to delete when a column arrives to replace it.
+// There is deliberately no fixture generator here.
+//
+// An earlier draft of this pass carried a DemoContent helper that produced a
+// stable, realistic-looking inspection template per id, because the prototype
+// shows one and the schema has none (D14 kept templates out of V1). It was
+// removed. A template name presented as a field of the record is not a styling
+// choice — it tells a reviewer this inspection was carried out against a
+// template, and no such thing exists. A screen that invents one datum is a
+// screen whose other data has to be checked.
+//
+// So every value the app renders is now either stored or computed from stored
+// rows, and capabilities that do not exist are named by DependencyNote instead
+// of illustrated by a plausible value.
+
+/// A screen that could not load, said as a product would say it.
 ///
-/// The prototype shows an inspection template ("Residential Pre-Handover",
-/// "Commercial TI"). There is no template in the schema and D14 recorded that
-/// templates are not in V1 — so this is presentation only. It is derived from
-/// the inspection id rather than randomised, which matters twice: a reviewer
-/// revisiting a record sees the same thing, and a screenshot taken today still
-/// matches the app tomorrow.
-class DemoContent {
-  const DemoContent._();
+/// Two lines, deliberately. The first tells the reader what failed in their
+/// terms; the second is the underlying message, verbatim and unedited. Neither
+/// alone is enough: "Something went wrong" is useless to anyone trying to fix
+/// it, and a bare `Exception: Failed host lookup` is a stack trace wearing a
+/// screen. Together they let a user act and a support channel diagnose.
+///
+/// The verbatim line keeps its own key so the assertions that read it — the
+/// unreadable-queue message is checked word for word (ACCEPTANCE E3) — still
+/// find exactly the text the app is showing.
+class ErrorState extends StatelessWidget {
+  const ErrorState({
+    super.key,
+    required this.title,
+    required this.detail,
+    this.detailKey,
+    this.onRetry,
+  });
 
-  static const List<String> _templates = [
-    'Residential Pre-Handover',
-    'Commercial TI',
-    'Multi-Family Turnover',
-    'Industrial Facility',
-  ];
+  final String title;
+  final String detail;
+  final Key? detailKey;
+  final VoidCallback? onRetry;
 
-  /// Stable across runs and processes: a plain sum over the id's code units,
-  /// not `hashCode`, which Dart does not guarantee between runs.
-  static int _seed(String id) {
-    var h = 0;
-    for (final unit in id.codeUnits) {
-      h = (h + unit) % 100003;
-    }
-    return h;
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(32, 44, 32, 32),
+      child: Column(
+        children: [
+          const Icon(
+            CupertinoIcons.exclamationmark_triangle,
+            size: 30,
+            color: AppColors.label3,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              color: AppColors.label,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            detail,
+            key: detailKey,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 13, color: AppColors.label2),
+          ),
+          if (onRetry != null) ...[
+            const SizedBox(height: 14),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
+              minimumSize: Size.zero,
+              borderRadius: BorderRadius.circular(10),
+              color: AppColors.blueTint,
+              onPressed: onRetry,
+              child: const Text(
+                'Try Again',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.blue,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
-
-  static String templateFor(String inspectionId) =>
-      _templates[_seed(inspectionId) % _templates.length];
 }
 
 /// A visible, honest statement that some capability is not wired up.
@@ -266,8 +324,11 @@ class StatsLine extends StatelessWidget {
       if (stats.total == 0)
         'No findings'
       else ...[
-        '${stats.open} open',
+        // Total first: "3 open" leading is a fraction with no denominator, and
+        // the reader has to wait for the next clause to know whether three open
+        // is most of the inspection or a corner of it.
         '${stats.total} finding${stats.total == 1 ? '' : 's'}',
+        '${stats.open} open',
       ],
       if (stats.photos > 0)
         '${stats.photos} photo${stats.photos == 1 ? '' : 's'}',

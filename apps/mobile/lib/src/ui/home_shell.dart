@@ -75,7 +75,6 @@ class HomeShell extends StatelessWidget {
         return CupertinoTabView(
           builder: (context) => switch (index) {
             0 => InspectionsScreen(
-                auth: auth,
                 profiles: profiles,
                 inspections: inspections,
                 items: items,

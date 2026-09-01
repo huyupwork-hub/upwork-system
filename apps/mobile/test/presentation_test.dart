@@ -87,29 +87,6 @@ void main() {
     });
   });
 
-  group('DemoContent', () {
-    test('a template is stable for an id across calls', () {
-      final first = DemoContent.templateFor('a0000000-0000-4000-8000-0001');
-      for (var i = 0; i < 50; i++) {
-        expect(DemoContent.templateFor('a0000000-0000-4000-8000-0001'), first);
-      }
-    });
-
-    test('different ids can differ, and every result is a real template', () {
-      final seen = <String>{};
-      for (var i = 0; i < 40; i++) {
-        seen.add(DemoContent.templateFor('inspection-$i'));
-      }
-      // Not a hash-quality assertion — just that it is not a constant, and that
-      // it never invents a name outside the fixed list.
-      expect(seen.length, greaterThan(1));
-      for (final name in seen) {
-        expect(name, isNotEmpty);
-        expect(name, isNot(contains('null')));
-      }
-    });
-  });
-
   group('widgets', () {
     Future<void> pump(WidgetTester tester, Widget child) => tester.pumpWidget(
           CupertinoApp(
