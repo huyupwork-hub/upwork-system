@@ -4,9 +4,11 @@ import 'package:flutter/cupertino.dart';
 
 import '../data/models.dart';
 import '../data/repositories.dart';
+import '../offline/offline_status.dart';
 import '../report/report_service.dart';
 import 'inspection_detail_screen.dart';
 import 'new_inspection_screen.dart';
+import 'offline_banner.dart';
 import 'theme.dart';
 
 /// History and search for the signed-in inspector.
@@ -26,6 +28,8 @@ class InspectionsScreen extends StatefulWidget {
     required this.photos,
     required this.source,
     required this.reports,
+    this.offline,
+    this.onSync,
   });
 
   final AuthRepository auth;
@@ -36,11 +40,22 @@ class InspectionsScreen extends StatefulWidget {
   final PhotoSource source;
   final ReportService reports;
 
+  /// Null when no offline queue is wired. Optional rather than required so the
+  /// screen still works — and still reads correctly — in a build that has no
+  /// local persistence, and so tests written before this slice construct it
+  /// unchanged.
+  final OfflineStatusNotifier? offline;
+
+  /// Runs a sync and returns when it has finished. Drives both the automatic
+  /// attempt after a load and the manual Retry in the banner.
+  final Future<void> Function()? onSync;
+
   @override
   State<InspectionsScreen> createState() => _InspectionsScreenState();
 }
 
-class _InspectionsScreenState extends State<InspectionsScreen> {
+class _InspectionsScreenState extends State<InspectionsScreen>
+    with WidgetsBindingObserver {
   final _search = TextEditingController();
 
   Profile? _profile;
@@ -59,13 +74,50 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_openingLoad());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _search.dispose();
     super.dispose();
+  }
+
+  /// Resume is the trigger, and the only automatic one.
+  ///
+  /// Coming back to the foreground is when a device that was in a basement has
+  /// most plausibly regained signal, and it costs nothing when it has not: the
+  /// push either succeeds or leaves the queue exactly as it was. There is no
+  /// background service, no scheduler and no polling loop, and correctness does
+  /// not depend on this firing at all — the Retry in the banner reaches the same
+  /// code path deterministically.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_sync());
+  }
+
+  Future<void> _openingLoad() async {
+    await _load();
+    // Anything left from a previous session is pushed on the way in, so an
+    // inspector who reopens the app with signal does not have to know that a
+    // queue exists.
+    if (mounted && (widget.offline?.value.hasPending ?? false)) await _sync();
+  }
+
+  /// Pushes whatever is queued, then reloads so the drafts that synced appear as
+  /// the server-backed rows they now are.
+  ///
+  /// This is the deterministic retry path §7 asks for. It is also all the
+  /// triggering there is on this screen: no timer, no polling, and no
+  /// connectivity listener deciding on the app's behalf whether Supabase is
+  /// reachable — the push itself is the only thing that knows.
+  Future<void> _sync() async {
+    final run = widget.onSync;
+    if (run == null) return;
+    await run();
+    if (mounted) await _load(query: _search.text);
   }
 
   Future<void> _load({String query = ''}) async {
@@ -111,6 +163,9 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
     }
   }
 
+  bool _isUnsynced(String id) =>
+      widget.offline?.value.pendingIds.contains(id) ?? false;
+
   Future<void> _openDetail(Inspection inspection) async {
     await Navigator.of(context).push(
       CupertinoPageRoute<void>(
@@ -121,6 +176,10 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
           photos: widget.photos,
           source: widget.source,
           reports: widget.reports,
+          // Read at push time from the queue, not stored on the record: whether
+          // an inspection has reached the server is connectivity state, and D14
+          // keeps connectivity out of the two persisted statuses.
+          isUnsynced: _isUnsynced(inspection.id),
         ),
       ),
     );
@@ -179,7 +238,23 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
               ),
             ),
           ),
-          SliverToBoxAdapter(child: _body()),
+          if (widget.offline != null)
+            SliverToBoxAdapter(
+              child: OfflineBanner(
+                status: widget.offline!,
+                onRetry: widget.onSync == null ? null : _sync,
+              ),
+            ),
+          // Rebuilt on queue changes as well as on load, so a row's "Not synced"
+          // marker cannot outlive the sync that cleared it.
+          SliverToBoxAdapter(
+            child: widget.offline == null
+                ? _body()
+                : ValueListenableBuilder<OfflineStatus>(
+                    valueListenable: widget.offline!,
+                    builder: (context, _, __) => _body(),
+                  ),
+          ),
         ],
       ),
     );
@@ -244,7 +319,11 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
         InsetCard(
           children: [
             for (final row in rows)
-              _InspectionRow(inspection: row, onTap: () => _openDetail(row)),
+              _InspectionRow(
+                inspection: row,
+                isUnsynced: _isUnsynced(row.id),
+                onTap: () => _openDetail(row),
+              ),
           ],
         ),
         if (_profile != null)
@@ -262,9 +341,14 @@ class _InspectionsScreenState extends State<InspectionsScreen> {
 }
 
 class _InspectionRow extends StatelessWidget {
-  const _InspectionRow({required this.inspection, required this.onTap});
+  const _InspectionRow({
+    required this.inspection,
+    required this.onTap,
+    this.isUnsynced = false,
+  });
 
   final Inspection inspection;
+  final bool isUnsynced;
   final VoidCallback onTap;
 
   @override
@@ -307,6 +391,12 @@ class _InspectionRow extends StatelessWidget {
                 ],
               ),
             ),
+            // Both, when both are true: it is a draft *and* it is not on the
+            // server yet. One pill would lose whichever fact it dropped.
+            if (isUnsynced) ...[
+              const UnsyncedPill(),
+              const SizedBox(width: 6),
+            ],
             _StatusPill(status: inspection.status),
             const SizedBox(width: 6),
             const Icon(

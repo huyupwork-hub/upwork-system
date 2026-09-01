@@ -9,9 +9,11 @@ pgTAP suite proves RLS against real Postgres, but through `psql`, not through th
 app's client path. This test closes the remaining gap: the real client, a real
 JWT, real policies, two real users.
 
-**Status: passing.** 8/8 against a real hosted project — see [Verified](#verified)
-below. The job remains opt-in via `HOSTED_SMOKE`, so a fork or a fresh clone
-without the secrets skips it rather than failing.
+**Status: passing.** See [Verified](#verified) below. The case list in this
+document covers the auth and ownership core plus the offline-sync cases; the test
+file itself is the authoritative list and is numbered to match. The job remains
+opt-in via `HOSTED_SMOKE`, so a fork or a fresh clone without the secrets skips it
+rather than failing.
 
 ## What it asserts
 
@@ -25,8 +27,30 @@ without the secrets skips it rather than failing.
 | 6 | User B cannot read it — by list, and by direct id |
 | 7 | User B cannot update or delete it — asserted against the data afterwards, because RLS denies these *silently* by matching zero rows |
 | 8 | User B cannot insert a row owned by A (raises) |
+| … | Items, photos, storage, submission immutability, history and search — cases 9–29, listed in the test file |
+| 30 | An offline-origin draft syncs to hosted Supabase through the production `DraftSync` and `SupabaseDraftSink` |
+| 31 | It arrives as **exactly one** draft, owned by A per RLS, with its fields intact and `submitted_at` null |
+| 32 | Both punch items are attached to it, in order, carrying `severity` and `status` — including a `resolved` item, which an ordinary insert would have defaulted to `open` |
+| 33 | Replaying the push produces no duplicate: still one inspection, still two items |
+| 34 | History and search find it exactly once, by a per-run unique token |
+| 35 | User B cannot see it, and B's own queue holding A's id is **refused by RLS** rather than overwriting A's row — B keeps its local copy instead of losing it |
+| 36 | After sync it is an ordinary editable draft: the online item-update path works on it |
+| 37 | The offline fixture is deleted |
 
 The row is deleted in `tearDownAll`, which also re-proves the owner delete policy.
+
+**How the offline half is modelled.** The offline *phase* is deterministic — a
+`LocalDraftBook` over an in-memory store, holding exactly what the device would have
+written. The *sync* phase runs against real hosted Supabase through the production
+classes. CI does not pull the network interface down: the outcome would then depend on
+how quickly the OS reported the change, and a flaky gate teaches people to ignore red.
+What only hosted Supabase can answer is asserted here — that a device-generated key
+really upserts, that RLS really owns the result, and that a replay really leaves one row.
+
+**Case 36 deliberately stops short of submitting.** D17's delete policy requires the
+parent to be a draft, so submitting the fixture would strand an undeletable row in the
+hosted project on every run. Submit-after-sync is proven by `offline_flow_test.dart`
+through the widget tree, and on hardware by the real-device QA in `ACCEPTANCE.md`.
 
 ## Required configuration
 

@@ -23,6 +23,13 @@ dependencies:
   pdf: ^3.11.1
   # Only for the platform preview/share/save sheet, behind ReportSharer.
   printing: ^5.13.4
+  # Durable storage for offline-origin drafts, behind DraftStore. Already in the
+  # graph transitively — supabase_flutter persists the auth session with it — so
+  # this declares an existing plugin rather than adding native code. Chosen over
+  # sqflite/drift because the queue is a handful of unsynced drafts read only as
+  # a whole; a schema, migrations and a code generator would buy nothing and
+  # would invite a local mirror of Supabase, which this slice deliberately is not.
+  shared_preferences: ^2.2.0
 
 dev_dependencies:
   flutter_test:

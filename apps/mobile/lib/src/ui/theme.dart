@@ -39,6 +39,12 @@ class AppColors {
 
   /// blue at 10%, precomputed — the sign-in logo tile.
   static const Color blueTint = Color(0x1A007AFF);
+
+  /// systemOrange, and systemOrange at 15% — the offline/unsynced banner and
+  /// pill. Deliberately not red: work held on the device is not an error, it is
+  /// a state that resolves itself when signal returns.
+  static const Color orange = Color(0xFFFF9500);
+  static const Color orangeTint = Color(0x26FF9500);
 }
 
 /// Figma metrics.

@@ -5,6 +5,7 @@ import 'package:fieldproof/src/data/photo_workflow.dart';
 import 'dart:typed_data';
 
 import 'package:fieldproof/src/data/repositories.dart';
+import 'package:fieldproof/src/offline/draft_sync.dart';
 import 'package:fieldproof/src/report/report_renderer.dart';
 import 'package:fieldproof/src/report/report_sharer.dart';
 import 'package:fieldproof/src/report/report_snapshot.dart';
@@ -82,15 +83,20 @@ class FakeInspectionsRepository implements InspectionsRepository {
   Object? failWith;
 
   @override
-  Future<Inspection> create(NewInspection draft) async {
+  Future<Inspection> create(NewInspection draft, {String? id}) async {
     if (failWith != null) throw failWith!;
 
-    // Mirrors the production path: the owner comes from the session.
-    final payload = draft.toInsert(inspectorId: sessionUserId);
+    // Mirrors the production path: the owner comes from the session, and the
+    // primary key is device-generated — supplied by the caller when it has one,
+    // minted here when it does not.
+    final payload = draft.toInsert(
+      inspectorId: sessionUserId,
+      id: id ?? 'inspection-${rows.length + 1}',
+    );
     insertPayloads.add(payload);
 
     final created = Inspection(
-      id: 'inspection-${rows.length + 1}',
+      id: payload['id'] as String,
       inspectorId: payload['inspector_id'] as String,
       siteName: payload['site_name'] as String,
       siteAddress: payload['site_address'] as String?,
@@ -156,19 +162,20 @@ class FakeInspectionsRepository implements InspectionsRepository {
     final needle = query.trim().toLowerCase();
     if (needle.isEmpty) return List.unmodifiable(_ordered(rows));
 
-    // A rough stand-in for the tsvector: every term must appear in one of the
-    // three searched fields. It deliberately does NOT re-implement ownership —
-    // that is RLS's job, proven in pgTAP `090` and the hosted smoke.
-    final terms = needle.split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
-    final matched = rows.where((r) {
-      final haystack = [
-        r.siteName,
-        r.siteAddress ?? '',
-        r.clientName ?? '',
-      ].join(' ').toLowerCase();
-      return terms.every(haystack.contains);
-    }).toList();
-    return List.unmodifiable(_ordered(matched));
+    // Stands in for the tsvector through the same predicate the offline queue
+    // uses, so "what this word matches" has one definition on the client. It was
+    // a substring scan before the offline slice, which was a *looser* rule than
+    // Postgres applies — the fake would have matched things the database does
+    // not. It deliberately still does NOT re-implement ownership; that is RLS's
+    // job, proven in pgTAP `090` and the hosted smoke.
+    bool matches(Inspection r) => InspectionSearch.matches(
+          needle,
+          siteName: r.siteName,
+          siteAddress: r.siteAddress,
+          clientName: r.clientName,
+        );
+
+    return List.unmodifiable(_ordered(rows.where(matches).toList()));
   }
 
   Future<void> _wait(String query) async {
@@ -177,25 +184,10 @@ class FakeInspectionsRepository implements InspectionsRepository {
   }
 
   /// inspection_date DESC, then created_at DESC, then id DESC — the same total
-  /// order the repository asks Postgres for.
-  List<Inspection> _ordered(List<Inspection> input) {
-    final out = [...input];
-    out.sort((a, b) {
-      final byDate = b.inspectionDate.compareTo(a.inspectionDate);
-      if (byDate != 0) return byDate;
-      final ac = a.createdAt, bc = b.createdAt;
-      if (ac != null && bc != null) {
-        final byCreated = bc.compareTo(ac);
-        if (byCreated != 0) return byCreated;
-      } else if (ac == null && bc != null) {
-        return 1;
-      } else if (ac != null && bc == null) {
-        return -1;
-      }
-      return b.id.compareTo(a.id);
-    });
-    return out;
-  }
+  /// order the repository asks Postgres for, from the one shared definition, so
+  /// the fake cannot drift from the order the merged offline history uses.
+  List<Inspection> _ordered(List<Inspection> input) =>
+      InspectionOrder.newestFirst(input);
 }
 
 /// In-memory punch items.
@@ -230,8 +222,9 @@ class FakeInspectionItemsRepository implements InspectionItemsRepository {
   @override
   Future<InspectionItem> create(
     String inspectionId,
-    NewInspectionItem draft,
-  ) async {
+    NewInspectionItem draft, {
+    String? id,
+  }) async {
     if (failWith != null) throw failWith!;
 
     final existing = await listFor(inspectionId);
@@ -242,11 +235,12 @@ class FakeInspectionItemsRepository implements InspectionItemsRepository {
     final payload = draft.toInsert(
       inspectionId: inspectionId,
       sortOrder: sortOrder,
+      id: id ?? 'item-${++_seq}',
     );
     insertPayloads.add(payload);
 
     final item = InspectionItem(
-      id: 'item-${++_seq}',
+      id: payload['id'] as String,
       inspectionId: payload['inspection_id'] as String,
       sortOrder: payload['sort_order'] as int,
       title: payload['title'] as String,
@@ -442,5 +436,95 @@ class FakeReportSharer implements ReportSharer {
     shared.add(bytes);
     filenames.add(filename);
     return true;
+  }
+}
+
+// ---------------------------------------------------------------- offline
+
+/// An in-memory stand-in for the server half of a draft push.
+///
+/// Like every other fake here it re-implements no ownership rule — RLS is proven
+/// by pgTAP and the hosted smoke. What it *does* model faithfully is the shape
+/// of an upsert on a device-generated key, because that is the property the sync
+/// tests are about: writing the same row twice must leave one row.
+class FakeDraftSink implements RemoteDraftSink {
+  FakeDraftSink({this.sessionUserId = 'user-1'});
+
+  final String sessionUserId;
+
+  /// The upserted rows, keyed by primary key. A map, not a list, because that is
+  /// what `ON CONFLICT (id) DO UPDATE` amounts to — a test that used a list
+  /// would report duplicates the database would never have created, and would
+  /// prove nothing about idempotency.
+  final Map<String, Map<String, dynamic>> inspections = {};
+  final Map<String, Map<String, dynamic>> items = {};
+
+  /// Every call, in order, so a test can assert the parent was written before
+  /// its children.
+  final List<String> calls = [];
+
+  /// Set to make the next inspection upsert fail.
+  Object? failInspection;
+
+  /// Set to make the next item upsert fail. Combined with [failAfterInspection]
+  /// this reproduces the partial-failure case: the parent lands, the children
+  /// do not.
+  Object? failItems;
+
+  /// Set to make the verifying read report the inspection as absent, which is
+  /// how a silently refused write looks from the client.
+  bool inspectionReadsAsMissing = false;
+
+  @override
+  Future<void> putInspection(Map<String, dynamic> row) async {
+    calls.add('putInspection');
+    if (failInspection != null) throw failInspection!;
+    final id = row['id'] as String;
+    inspections[id] = {...row, 'status': 'draft', 'submitted_at': null};
+  }
+
+  @override
+  Future<void> putItems(List<Map<String, dynamic>> rows) async {
+    calls.add('putItems');
+    if (failItems != null) throw failItems!;
+    for (final row in rows) {
+      items[row['id'] as String] = {...row};
+    }
+  }
+
+  @override
+  Future<void> pruneItems(String inspectionId, Set<String> keepIds) async {
+    calls.add('pruneItems');
+    items.removeWhere(
+      (id, row) =>
+          row['inspection_id'] == inspectionId && !keepIds.contains(id),
+    );
+  }
+
+  @override
+  Future<Inspection?> readInspection(String id) async {
+    calls.add('readInspection');
+    if (inspectionReadsAsMissing) return null;
+    final row = inspections[id];
+    if (row == null) return null;
+    return Inspection(
+      id: row['id'] as String,
+      inspectorId: row['inspector_id'] as String,
+      siteName: row['site_name'] as String,
+      siteAddress: row['site_address'] as String?,
+      clientName: row['client_name'] as String?,
+      inspectionDate: DateTime.parse(row['inspection_date'] as String),
+      status: InspectionStatus.draft,
+      createdAt: DateTime(2026, 9, 1),
+    );
+  }
+
+  @override
+  Future<Set<String>> readItemIds(String inspectionId) async {
+    calls.add('readItemIds');
+    return items.entries
+        .where((e) => e.value['inspection_id'] == inspectionId)
+        .map((e) => e.key)
+        .toSet();
   }
 }

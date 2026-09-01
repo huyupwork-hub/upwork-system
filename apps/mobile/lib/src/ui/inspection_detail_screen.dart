@@ -27,6 +27,7 @@ class InspectionDetailScreen extends StatefulWidget {
     required this.photos,
     required this.source,
     required this.reports,
+    this.isUnsynced = false,
   });
 
   final Inspection inspection;
@@ -35,6 +36,15 @@ class InspectionDetailScreen extends StatefulWidget {
   final PhotosRepository photos;
   final PhotoSource source;
   final ReportService reports;
+
+  /// The inspection is held only on this device and has never been pushed.
+  ///
+  /// It is still fully editable — that is the point of the offline slice — but
+  /// it cannot be submitted, because submission stamps `submitted_at` on the
+  /// server and freezes the record there (D10, D17). The repository refuses it
+  /// regardless; this only stops the app offering an action that cannot succeed,
+  /// which is the same rule the add and report affordances already follow.
+  final bool isUnsynced;
 
   @override
   State<InspectionDetailScreen> createState() => _InspectionDetailScreenState();
@@ -255,13 +265,30 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
               ),
             const SectionHeader(label: 'Punch list'),
             _items(),
-            if (_isEditable) _submitFooter(),
+            if (_isEditable && widget.isUnsynced) _unsyncedFooter,
+            if (_isEditable && !widget.isUnsynced) _submitFooter(),
             const SizedBox(height: 32),
           ],
         ),
       ),
     );
   }
+
+  /// Shown instead of the Submit button while the draft is still local.
+  ///
+  /// It explains rather than disables, for the reason the rest of this screen
+  /// follows: a greyed-out Submit invites a tap that can never work, and says
+  /// nothing about why. This says exactly what has to happen first.
+  static const Widget _unsyncedFooter = Padding(
+    padding: EdgeInsets.fromLTRB(20, 24, 20, 0),
+    child: Text(
+      'Saved on this device. It can be submitted once it has synced to the '
+      'server.',
+      key: Key('detail-unsynced-notice'),
+      textAlign: TextAlign.center,
+      style: TextStyle(fontSize: 13, color: AppColors.label2),
+    ),
+  );
 
   /// Present only on a draft. A submitted inspection has no submit control at
   /// all rather than a disabled one — the same rule the add and report actions

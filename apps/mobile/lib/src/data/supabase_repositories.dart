@@ -9,7 +9,9 @@ library;
 import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
+import '../offline/draft_sync.dart';
 import 'models.dart';
 import 'photo_workflow.dart';
 import 'repositories.dart';
@@ -62,22 +64,27 @@ class SupabaseProfileRepository implements ProfileRepository {
 }
 
 class SupabaseInspectionsRepository implements InspectionsRepository {
-  SupabaseInspectionsRepository(this._client);
+  SupabaseInspectionsRepository(this._client, {Uuid? uuid})
+      : _uuid = uuid ?? const Uuid();
 
   final SupabaseClient _client;
+  final Uuid _uuid;
 
   static const String _columns =
       'id, inspector_id, site_name, site_address, client_name, '
       'inspection_date, status, submitted_at, created_at';
 
   @override
-  Future<Inspection> create(NewInspection draft) async {
+  Future<Inspection> create(NewInspection draft, {String? id}) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) throw const NotSignedInException();
 
+    // Minted here when the caller has no opinion, so the row's identity is
+    // fixed before the request leaves the device (D5). The column default
+    // still exists for server-side inserts; the client no longer relies on it.
     final row = await _client
         .from('inspections')
-        .insert(draft.toInsert(inspectorId: userId))
+        .insert(draft.toInsert(inspectorId: userId, id: id ?? _uuid.v4()))
         .select(_columns)
         .single();
 
@@ -153,9 +160,11 @@ class SupabaseInspectionsRepository implements InspectionsRepository {
 }
 
 class SupabaseInspectionItemsRepository implements InspectionItemsRepository {
-  SupabaseInspectionItemsRepository(this._client);
+  SupabaseInspectionItemsRepository(this._client, {Uuid? uuid})
+      : _uuid = uuid ?? const Uuid();
 
   final SupabaseClient _client;
+  final Uuid _uuid;
 
   static const String _columns =
       'id, inspection_id, sort_order, title, description, area, '
@@ -181,8 +190,9 @@ class SupabaseInspectionItemsRepository implements InspectionItemsRepository {
   @override
   Future<InspectionItem> create(
     String inspectionId,
-    NewInspectionItem draft,
-  ) async {
+    NewInspectionItem draft, {
+    String? id,
+  }) async {
     if (_client.auth.currentUser == null) throw const NotSignedInException();
 
     // Append at the end. sort_order is non-unique by design (D7), so a race
@@ -193,8 +203,11 @@ class SupabaseInspectionItemsRepository implements InspectionItemsRepository {
 
     final row = await _client
         .from('inspection_items')
-        .insert(
-            draft.toInsert(inspectionId: inspectionId, sortOrder: nextOrder))
+        .insert(draft.toInsert(
+          inspectionId: inspectionId,
+          sortOrder: nextOrder,
+          id: id ?? _uuid.v4(),
+        ))
         .select(_columns)
         .single();
 
@@ -248,6 +261,86 @@ class SupabaseInspectionItemsRepository implements InspectionItemsRepository {
     if (rows.isEmpty) {
       throw const NotPermittedException('delete this item');
     }
+  }
+}
+
+/// The remote half of an offline draft's first and only push.
+///
+/// Nothing here is privileged and nothing bypasses the repositories' rules: it
+/// is the same anon key, the same session, and the same policies. It exists as a
+/// separate class only because a push is an **upsert on a device-generated key**
+/// and the ordinary create path is an insert — the write shape differs, the
+/// authority does not.
+class SupabaseDraftSink implements RemoteDraftSink {
+  SupabaseDraftSink(this._client);
+
+  final SupabaseClient _client;
+
+  static const String _inspectionColumns =
+      'id, inspector_id, site_name, site_address, client_name, '
+      'inspection_date, status, submitted_at, created_at';
+
+  @override
+  Future<void> putInspection(Map<String, dynamic> row) async {
+    if (_client.auth.currentUser == null) throw const NotSignedInException();
+    // Default resolution is merge-duplicates: ON CONFLICT (id) DO UPDATE. The
+    // INSERT policy's WITH CHECK governs the new row and the UPDATE policy's
+    // USING governs an existing one, so this can only ever land on a draft the
+    // caller already owns.
+    await _client.from('inspections').upsert(row);
+  }
+
+  @override
+  Future<void> putItems(List<Map<String, dynamic>> rows) async {
+    if (rows.isEmpty) return;
+    if (_client.auth.currentUser == null) throw const NotSignedInException();
+    await _client.from('inspection_items').upsert(rows);
+  }
+
+  @override
+  Future<void> pruneItems(String inspectionId, Set<String> keepIds) async {
+    if (_client.auth.currentUser == null) throw const NotSignedInException();
+
+    final stale = await _client
+        .from('inspection_items')
+        .select('id')
+        .eq('inspection_id', inspectionId);
+
+    final doomed = stale
+        .map((r) => r['id'] as String)
+        .where((id) => !keepIds.contains(id))
+        .toList(growable: false);
+    if (doomed.isEmpty) return;
+
+    await _client.from('inspection_items').delete().inFilter('id', doomed);
+  }
+
+  @override
+  Future<Inspection?> readInspection(String id) async {
+    if (_client.auth.currentUser == null) throw const NotSignedInException();
+
+    // maybeSingle: "the row is not there" is the answer the caller needs, not an
+    // error. RLS means a row owned by someone else reads as absent, which is the
+    // correct conclusion here too — it is not this device's to retire.
+    final row = await _client
+        .from('inspections')
+        .select(_inspectionColumns)
+        .eq('id', id)
+        .maybeSingle();
+
+    return row == null ? null : Inspection.fromRow(row);
+  }
+
+  @override
+  Future<Set<String>> readItemIds(String inspectionId) async {
+    if (_client.auth.currentUser == null) throw const NotSignedInException();
+
+    final rows = await _client
+        .from('inspection_items')
+        .select('id')
+        .eq('inspection_id', inspectionId);
+
+    return rows.map((r) => r['id'] as String).toSet();
   }
 }
 

@@ -37,32 +37,48 @@ void main() {
     );
 
     test('parent comes from the caller, never from the draft', () {
-      final payload = draft.toInsert(inspectionId: 'insp-1', sortOrder: 3);
+      final payload =
+          draft.toInsert(inspectionId: 'insp-1', sortOrder: 3, id: 'item-1');
       expect(payload['inspection_id'], 'insp-1');
       expect(payload['sort_order'], 3);
     });
 
     test('trims text and nulls out blank optional fields', () {
-      final payload = draft.toInsert(inspectionId: 'i', sortOrder: 0);
+      final payload =
+          draft.toInsert(inspectionId: 'i', sortOrder: 0, id: 'item-1');
       expect(payload['title'], 'Cracked pane');
       expect(payload['description'], 'Hairline crack');
       expect(payload['area'], isNull);
     });
 
     test('severity is sent on the wire in schema form', () {
-      final payload = draft.toInsert(inspectionId: 'i', sortOrder: 0);
+      final payload =
+          draft.toInsert(inspectionId: 'i', sortOrder: 0, id: 'item-1');
       expect(payload['severity'], 'high');
     });
 
     test('status is omitted so the column default applies', () {
-      final payload = draft.toInsert(inspectionId: 'i', sortOrder: 0);
+      final payload =
+          draft.toInsert(inspectionId: 'i', sortOrder: 0, id: 'item-1');
       expect(payload.containsKey('status'), isFalse);
     });
 
-    test('payload carries no key beyond the six the schema defines', () {
+    test('the id is device-generated, on the same terms as an inspection', () {
+      final payload =
+          draft.toInsert(inspectionId: 'i', sortOrder: 0, id: 'item-1');
+      expect(payload['id'], 'item-1');
+    });
+
+    test('payload carries no key beyond the seven the schema defines', () {
       // Guards against a Figma field (assignee, template, organisation)
       // reaching the database through this path.
-      expect(draft.toInsert(inspectionId: 'i', sortOrder: 0).keys.toSet(), {
+      final payload = draft.toInsert(
+        inspectionId: 'i',
+        sortOrder: 0,
+        id: 'item-1',
+      );
+      expect(payload.keys.toSet(), {
+        'id',
         'inspection_id',
         'sort_order',
         'title',

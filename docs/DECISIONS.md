@@ -56,6 +56,9 @@ operation outbox.
 **Accepted limitation:** an inspection created online cannot be edited offline.
 Deliberate scope control for the two-day build target. No tombstones, no operation
 outbox, no conflict-resolution machinery unless a later requirement explicitly needs one.
+**Implemented in D24–D27.** Those record what the build actually does, including the
+one place D5 turned out not to be true yet: the client was not sending the
+device-generated key at all.
 
 ### D6 — PDF is generated client-side in Flutter — *Accepted*
 On-device rendering via the `pdf` package.
@@ -379,3 +382,92 @@ querying one column must not disagree about what a word matches.
 **No second PDF engine** (D21). The console presents submitted data in a report-oriented
 view; the Flutter client remains the only thing that generates a document, and nothing is
 persisted.
+
+### D24 — Offline lives at the repository boundary, as two decorators — *Accepted*
+`OfflineFirstInspectionsRepository` and `OfflineFirstInspectionItemsRepository`
+implement the interfaces the app already talks to and delegate to the Supabase ones
+whenever the server is reachable. No widget asks whether it is online.
+**Why that seam:** the alternative is connectivity checks sprinkled through the New
+Inspection sheet, the punch-list editor and History — three places that would then
+have to be kept in agreement, and a second draft editor to maintain. Here there is one
+create path, one item editor and one history, and the offline behaviour is a property
+of the data layer.
+**What they are not:** a cache. Nothing server-backed is stored locally — no submitted
+inspections, no other people's work, no read-through mirror. The queue holds drafts
+that originated on this device and have never been pushed, and that is all it will ever
+hold. A server-backed record while offline is simply unavailable, and the banner says
+so rather than the list quietly looking complete.
+**The Figma's `syncing`/`offline` statuses stay unstored** (D14). Being unsynced is
+rendered as a second pill beside `Draft`, from the queue's contents, never from a
+column. After a sync one of those two facts is still true and the other is not, which
+is exactly why they are not one field.
+
+### D25 — A refusal is not an outage — *Accepted*
+`isTransportFailure` classifies every failure before anything is queued. A
+`PostgrestException`, `StorageException` or `AuthException` means the server answered,
+and the error is re-thrown to the caller. Only a genuine transport failure —
+`SocketException`, `HttpException`, `HandshakeException`, `TimeoutException`,
+`AuthRetryableFetchException`, `http`'s `ClientException` — puts a draft on the device.
+**Why this is load-bearing:** treating every failure as "offline" would stash drafts
+the database has already rejected — a constraint violation, or an RLS denial — and they
+would sit in the queue failing forever while the UI implied they were waiting for
+signal. The user would be told their work was safe when it was unacceptable.
+**Connectivity is a trigger, never authority.** No connectivity package is used and no
+correctness depends on one: an interface that is up says nothing about whether Supabase
+answers, and a captive portal is a full-strength connection to nothing. The push itself
+is what determines reachability. Retry is triggered on app open and on resume, plus a
+Retry control in the banner that reaches the same code path deterministically. No
+polling, no background service, no scheduler.
+
+### D26 — The device generates the key, and sync is a verified merge-upsert — *Accepted*
+Ids for inspections and items are minted on the device before any write is attempted,
+and a push is `ON CONFLICT (id) DO UPDATE` through PostgREST's default upsert.
+**A gap D5 had left open:** `inspections.id` was documented in the migration as "the
+idempotency key for first sync", but the Flutter client never sent it — every insert let
+`gen_random_uuid()` apply, so a retried write was indistinguishable from a new one. The
+client now sends it on every create, online and offline alike. That also closes the
+uglier case: an insert that reaches Postgres whose response is lost is stashed locally
+under the key the server already holds, so the sync that follows lands on that row
+instead of creating a second one.
+**Merge rather than ignore-duplicates.** A draft whose first push failed part-way stays
+editable on the device, so a retry must carry whatever changed since. `DO NOTHING` would
+push the row once and silently ignore every later edit, and the app would report a sync
+that had not delivered the current work. Items merge on the same terms, including
+`status` — which an ordinary insert omits so the column default applies, but a re-push
+must send, or an item resolved in the field syncs back as `open`.
+**No migration was needed.** The existing policies already permit exactly this and
+nothing more: the INSERT `WITH CHECK` governs the proposed row, the UPDATE `USING`
+governs the existing one, and D17's `status = 'draft'` conjunct means a submitted row
+refuses the merge outright. pgTAP `050` now asserts the merge path in both directions —
+an owner may overwrite their own draft, a merge cannot reassign `inspector_id`, and a
+merge cannot land on another inspector's row.
+**Success is read back, never inferred.** RLS refuses UPDATE and DELETE by matching zero
+rows *silently*, so the absence of an exception proves nothing. Sync re-reads the
+inspection and the item ids and compares them against what it holds; only then is the
+local record removed. Items the inspector deleted after a partial push are pruned, so
+"synced" describes a server record that matches the device.
+
+### D27 — The handoff is a deletion, and Submit stays a server transition — *Accepted*
+A local draft has no `synced` state. Once the push is verified the record is **removed**
+from the queue, and Supabase/RLS is the authority from that moment.
+**Why a deletion rather than a flag:** a `synced` marker on the device would be a second
+writable authority for a row the server already owns, which is the dual-source-of-truth
+bug this design exists to avoid. Absence cannot disagree with the database. It also
+makes the merge in History trivially correct — a row that exists in both places under
+one key appears once, with the server's copy winning.
+**Offline Submit is refused at the repository, not merely hidden.** `submit` raises
+`DraftNotSyncedException` for anything still in the queue, and the detail screen shows
+an explanation where the button would be — absent, not disabled, the same rule the add
+and report affordances already follow. A locally applied "submitted" would be a claim no
+server ever made: `submitted_at` is stamped by a trigger (D10) and immutability is a
+database rule (D17), and there would be nothing to unwind once it turned out false.
+**`shared_preferences` for the queue**, behind a `DraftStore` port. It is already in the
+graph — `supabase_flutter` persists the auth session with it — so this declares an
+existing plugin rather than adding native code. sqflite or drift would add a schema,
+migrations and a code generator to serialise a handful of unsynced drafts read only as a
+whole, and would invite the local mirror of Supabase that D24 refuses.
+**Offline photos are not in this slice.** ACCEPTANCE E1 mentions them; they are recorded
+as E1b and deferred, because they need a durable local file store (a new `path_provider`
+dependency), deterministic photo ids so a retry cannot duplicate a Storage object, and
+local-file rendering in the photo strip — a slice of its own rather than a corner of this
+one. E1a, the draft and its punch items, is what closes here.

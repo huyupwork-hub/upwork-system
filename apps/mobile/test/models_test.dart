@@ -11,32 +11,42 @@ void main() {
     );
 
     test('takes inspector_id from the caller-supplied session id', () {
-      final payload = draft.toInsert(inspectorId: 'session-user');
+      final payload = draft.toInsert(inspectorId: 'session-user', id: 'insp-1');
       expect(payload['inspector_id'], 'session-user');
     });
 
     test('trims text and nulls out blank optional fields', () {
-      final payload = draft.toInsert(inspectorId: 'u');
+      final payload = draft.toInsert(inspectorId: 'u', id: 'insp-1');
       expect(payload['site_name'], 'Harbour View');
       expect(payload['site_address'], '12 Dock Road');
       expect(payload['client_name'], isNull);
     });
 
     test('sends a date, not a timestamp, for the date column', () {
-      final payload = draft.toInsert(inspectorId: 'u');
+      final payload = draft.toInsert(inspectorId: 'u', id: 'insp-1');
       expect(payload['inspection_date'], '2026-08-20');
     });
 
     test('omits status and submitted_at so the column defaults apply', () {
-      final payload = draft.toInsert(inspectorId: 'u');
+      final payload = draft.toInsert(inspectorId: 'u', id: 'insp-1');
       expect(payload.containsKey('status'), isFalse);
       expect(payload.containsKey('submitted_at'), isFalse);
     });
 
-    test('payload carries no key beyond the five the schema defines', () {
+    test('carries the device-generated id, which is what makes sync idempotent',
+        () {
+      // D5 calls inspections.id "the idempotency key for first sync". Until the
+      // offline slice the client omitted it and let gen_random_uuid() apply, so
+      // a retried write was indistinguishable from a new one.
+      final payload = draft.toInsert(inspectorId: 'u', id: 'insp-1');
+      expect(payload['id'], 'insp-1');
+    });
+
+    test('payload carries no key beyond the six the schema defines', () {
       expect(
-        draft.toInsert(inspectorId: 'u').keys.toSet(),
+        draft.toInsert(inspectorId: 'u', id: 'insp-1').keys.toSet(),
         {
+          'id',
           'inspector_id',
           'site_name',
           'site_address',

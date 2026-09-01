@@ -34,8 +34,17 @@ import 'package:fieldproof/src/data/models.dart';
 import 'package:fieldproof/src/data/repositories.dart';
 import 'package:fieldproof/src/data/photo_workflow.dart';
 import 'package:fieldproof/src/data/supabase_repositories.dart';
+import 'package:fieldproof/src/offline/draft_store.dart';
+import 'package:fieldproof/src/offline/draft_sync.dart';
+import 'package:fieldproof/src/offline/local_draft.dart';
+import 'package:fieldproof/src/offline/offline_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
+
+/// Ids are minted on the device, before anything is written. That is the whole
+/// idempotency story (D5), so the smoke test has to mint them the same way.
+const Uuid _uuid = Uuid();
 
 String _env(String name) {
   final value = Platform.environment[name] ?? '';
@@ -114,6 +123,18 @@ void main() {
   final siteName =
       'SMOKE ${DateTime.now().toUtc().toIso8601String()} do-not-keep';
 
+  // The offline slice. Ids are minted here, before anything is written, exactly
+  // as the device does — that is the property being exercised, so they cannot
+  // come back from the server.
+  final offlineToken = 'ofl${DateTime.now().microsecondsSinceEpoch}';
+  final offlineId = _uuid.v4();
+  final offlineItemA = _uuid.v4();
+  final offlineItemB = _uuid.v4();
+  final offlineSite = 'SMOKE $offlineToken offline do-not-keep';
+  LocalDraftBook? offlineBook;
+  OfflineStatusNotifier? offlineStatus;
+  DraftSync? offlineSync;
+
   setUpAll(() async {
     final url = _env('SUPABASE_URL');
     final anonKey = _env('SUPABASE_ANON_KEY');
@@ -160,6 +181,10 @@ void main() {
     if (id != null) {
       await clientA.from('inspections').delete().eq('id', id);
     }
+    // Belt and braces: if an offline case failed before its own cleanup, this
+    // still removes the fixture. It is a draft throughout, so the owner delete
+    // policy applies to it.
+    await clientA.from('inspections').delete().eq('id', offlineId);
     await clientA.auth.signOut();
     await clientB.auth.signOut();
     await clientA.dispose();
@@ -627,6 +652,223 @@ void main() {
     histOlder = null;
     histNewer = null;
     bUnique = null;
+  });
+
+  // ------------------------------------------------------------ offline sync
+  //
+  // The offline phase is modelled deterministically — a LocalDraftBook over an
+  // in-memory store, holding exactly what the device would have written — and
+  // the *sync* phase runs against real hosted Supabase through the production
+  // `SupabaseDraftSink` and the production `DraftSync`. Nothing here reaches
+  // around the repositories to make itself pass; the Submit incident is why
+  // that rule exists.
+  //
+  // CI does not disconnect the network. Pulling the interface down inside a
+  // runner would make the whole job's outcome depend on how quickly the OS
+  // reported it, which is exactly the kind of flake that teaches people to
+  // ignore red. What matters here is the half that only hosted Supabase can
+  // answer: that a device-generated key really does upsert, that RLS really
+  // does own the result, and that a replayed push really does leave one row.
+
+  test('30. an offline-origin draft syncs to hosted Supabase', () async {
+    offlineBook = LocalDraftBook(MemoryDraftStore());
+    offlineStatus = OfflineStatusNotifier();
+    offlineSync = DraftSync(
+      local: offlineBook!,
+      sink: SupabaseDraftSink(clientA),
+      auth: authA,
+      status: offlineStatus!,
+    );
+
+    await offlineBook!.put(
+      LocalDraft(
+        id: offlineId,
+        // Only decides *whether* to push, never who owns the result: the sync
+        // reads inspector_id from the live session, and RLS decides from the
+        // JWT. Case 35 proves the stored value cannot claim a row.
+        ownerId: userAId,
+        siteName: offlineSite,
+        siteAddress: '9 Offline Lane',
+        clientName: 'Offline Client',
+        inspectionDate: DateTime(2026, 8, 27),
+        createdAt: DateTime(2026, 8, 27, 8),
+        items: [
+          LocalItem(
+            id: offlineItemA,
+            sortOrder: 0,
+            title: 'Offline punch item A',
+            description: 'Captured with no connection',
+            area: 'Plant room',
+            severity: ItemSeverity.high,
+            status: ItemStatus.open,
+            createdAt: DateTime(2026, 8, 27, 8, 5),
+          ),
+          LocalItem(
+            id: offlineItemB,
+            sortOrder: 1,
+            title: 'Offline punch item B',
+            severity: ItemSeverity.low,
+            status: ItemStatus.resolved,
+            createdAt: DateTime(2026, 8, 27, 8, 6),
+          ),
+        ],
+      ),
+    );
+
+    final report = await offlineSync!.run();
+
+    expect(report.failed, isEmpty, reason: report.lastError ?? '');
+    expect(report.synced, [offlineId]);
+    // Authority has moved. The device no longer holds a writable copy.
+    expect(await offlineBook!.all(), isEmpty);
+  });
+
+  test('31. it is exactly one draft, owned by A, with the fields intact',
+      () async {
+    final mine = await inspectionsA.listMine();
+    final matches = mine.where((i) => i.id == offlineId);
+
+    expect(matches, hasLength(1));
+    final row = matches.single;
+    expect(row.inspectorId, userAId,
+        reason: 'ownership comes from the session and RLS, not from the queue');
+    expect(row.status, InspectionStatus.draft,
+        reason: 'a synced offline draft is an ordinary draft, never submitted');
+    expect(row.submittedAt, isNull);
+    expect(row.siteName, offlineSite);
+    expect(row.siteAddress, '9 Offline Lane');
+    expect(row.clientName, 'Offline Client');
+  });
+
+  test('32. both items are attached to it, with their fields', () async {
+    final rows = await itemsA.listFor(offlineId);
+    expect(rows.map((r) => r.id), [offlineItemA, offlineItemB]);
+    expect(rows.first.title, 'Offline punch item A');
+    expect(rows.first.area, 'Plant room');
+    expect(rows.first.severity, ItemSeverity.high);
+    expect(rows.first.status, ItemStatus.open);
+    // status is omitted on an ordinary insert so the default applies; a re-push
+    // has to carry it, or an item resolved in the field syncs back as open.
+    expect(rows.last.status, ItemStatus.resolved);
+    expect(rows.last.severity, ItemSeverity.low);
+  });
+
+  test('33. replaying the push produces no duplicate', () async {
+    // The interrupted-sync case, against the real database. The device would
+    // re-queue the same record with the same keys after a crash mid-push.
+    await offlineBook!.put(
+      LocalDraft(
+        id: offlineId,
+        ownerId: userAId,
+        siteName: offlineSite,
+        siteAddress: '9 Offline Lane',
+        clientName: 'Offline Client',
+        inspectionDate: DateTime(2026, 8, 27),
+        createdAt: DateTime(2026, 8, 27, 8),
+        items: [
+          LocalItem(
+            id: offlineItemA,
+            sortOrder: 0,
+            title: 'Offline punch item A',
+            description: 'Captured with no connection',
+            area: 'Plant room',
+            severity: ItemSeverity.high,
+            status: ItemStatus.open,
+            createdAt: DateTime(2026, 8, 27, 8, 5),
+          ),
+          LocalItem(
+            id: offlineItemB,
+            sortOrder: 1,
+            title: 'Offline punch item B',
+            severity: ItemSeverity.low,
+            status: ItemStatus.resolved,
+            createdAt: DateTime(2026, 8, 27, 8, 6),
+          ),
+        ],
+      ),
+    );
+
+    final report = await offlineSync!.run();
+    expect(report.failed, isEmpty, reason: report.lastError ?? '');
+
+    final mine = await inspectionsA.listMine();
+    expect(mine.where((i) => i.id == offlineId), hasLength(1));
+    expect(await itemsA.listFor(offlineId), hasLength(2));
+  });
+
+  test('34. history and search find it exactly once', () async {
+    final searched = await inspectionsA.searchMine(offlineToken);
+    expect(searched.where((i) => i.id == offlineId), hasLength(1));
+    expect(searched.single.id, offlineId);
+  });
+
+  test('35. user B cannot see or push over the synced draft', () async {
+    expect(
+      (await inspectionsB.listMine()).where((i) => i.id == offlineId),
+      isEmpty,
+    );
+
+    // B's own queue holding A's id must not become a way to write A's row.
+    final bBook = LocalDraftBook(MemoryDraftStore());
+    await bBook.put(
+      LocalDraft(
+        id: offlineId,
+        ownerId: userBId,
+        siteName: 'SMOKE hijack do-not-keep',
+        inspectionDate: DateTime(2026, 8, 27),
+        createdAt: DateTime(2026, 8, 27),
+      ),
+    );
+    final bReport = await DraftSync(
+      local: bBook,
+      sink: SupabaseDraftSink(clientB),
+      auth: SupabaseAuthRepository(clientB),
+      status: OfflineStatusNotifier(),
+    ).run();
+
+    expect(bReport.synced, isEmpty, reason: 'RLS must refuse the merge');
+    expect(bReport.failed, [offlineId]);
+    // Refused, and B keeps its own local copy rather than losing it.
+    expect(await bBook.all(), hasLength(1));
+
+    // A's row is untouched.
+    final row = (await inspectionsA.listMine())
+        .firstWhere((i) => i.id == offlineId);
+    expect(row.siteName, offlineSite);
+    expect(row.inspectorId, userAId);
+  });
+
+  test('36. after sync it is an ordinary editable draft, not a special record',
+      () async {
+    // The handoff, stated as a property: Supabase is now the authority, so the
+    // ordinary online write path works on it and the local queue has no say.
+    final edited = await itemsA.update(
+      offlineItemA,
+      title: 'Offline punch item A, edited online',
+      description: 'Edited after sync',
+      area: 'Plant room',
+      severity: ItemSeverity.critical,
+      status: ItemStatus.resolved,
+    );
+
+    expect(edited.title, 'Offline punch item A, edited online');
+    expect(edited.severity, ItemSeverity.critical);
+    // Submit is available to it on exactly the same terms as any other draft —
+    // asserted by *not* submitting here. D17's delete policy requires the parent
+    // to be a draft, so submitting this fixture would strand an undeletable row
+    // in the hosted project on every run. Submit-after-sync is proven by
+    // `offline_flow_test.dart` through the widget tree and by the real-device QA
+    // in docs/ACCEPTANCE.md, which submits a genuinely offline-created record on
+    // hardware against this same project.
+  });
+
+  test('37. the offline fixture is removed', () async {
+    await clientA.from('inspections').delete().eq('id', offlineId);
+
+    final still = await inspectionsA.listMine();
+    expect(still.where((i) => i.id == offlineId), isEmpty);
+    expect(await itemsA.listFor(offlineId), isEmpty,
+        reason: 'and the cascade took its items with it');
   });
 }
 

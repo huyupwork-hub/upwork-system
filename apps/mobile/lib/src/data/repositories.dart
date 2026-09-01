@@ -30,7 +30,14 @@ abstract interface class ProfileRepository {
 
 abstract interface class InspectionsRepository {
   /// Persists a draft. `inspector_id` comes from the live session.
-  Future<Inspection> create(NewInspection draft);
+  ///
+  /// [id] is the row's primary key, device-generated (D5). Callers normally
+  /// leave it null and the repository mints one. The offline path supplies it,
+  /// because it has to know the id *before* the write is attempted: if the
+  /// insert reaches Postgres and the response never comes back, the draft is
+  /// stashed locally under that same id and the later sync upserts onto the row
+  /// that already exists. Without a shared key that case is a duplicate.
+  Future<Inspection> create(NewInspection draft, {String? id});
 
   /// The signed-in inspector's own inspections, newest first.
   ///
@@ -82,12 +89,35 @@ class NotSignedInException implements Exception {
   String toString() => 'No active session.';
 }
 
+/// The inspection exists only on this device and has not reached Supabase yet.
+///
+/// Raised by `submit`, and the reason offline submission is not merely absent
+/// from the UI but refused at the boundary. `submitted_at` is stamped by a
+/// database trigger and D17 immutability is a database rule; a locally
+/// "submitted" flag would be a claim no server ever made, and there would be
+/// nothing to unwind once it turned out to be false.
+class DraftNotSyncedException implements Exception {
+  const DraftNotSyncedException(this.inspectionId);
+  final String inspectionId;
+
+  @override
+  String toString() =>
+      'This inspection has not synced yet. It can be submitted once it has '
+      'reached the server.';
+}
+
 abstract interface class InspectionItemsRepository {
   /// Items for one inspection, in `sort_order` then `created_at`.
   Future<List<InspectionItem>> listFor(String inspectionId);
 
   /// Persists a new item under [inspectionId].
-  Future<InspectionItem> create(String inspectionId, NewInspectionItem draft);
+  ///
+  /// [id] is device-generated, on the same terms as an inspection's.
+  Future<InspectionItem> create(
+    String inspectionId,
+    NewInspectionItem draft, {
+    String? id,
+  });
 
   /// Updates the editable fields of an existing item.
   Future<InspectionItem> update(

@@ -4,6 +4,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'src/config/env.dart';
 import 'src/data/image_picker_photo_source.dart';
 import 'src/data/photo_workflow.dart';
+import 'src/offline/draft_store.dart';
+import 'src/offline/draft_sync.dart';
+import 'src/offline/offline_repositories.dart';
+import 'src/offline/offline_status.dart';
 import 'src/report/report_loader.dart';
 import 'src/report/report_renderer.dart';
 import 'src/report/report_service.dart';
@@ -26,7 +30,7 @@ Future<void> main() async {
 
   final client = Supabase.instance.client;
 
-  final items = SupabaseInspectionItemsRepository(client);
+  final auth = SupabaseAuthRepository(client);
   final photos = PhotoWorkflow(
     objects: SupabaseObjectStore(client),
     metadata: SupabasePhotoMetadataStore(client),
@@ -34,11 +38,40 @@ Future<void> main() async {
   );
   final profiles = SupabaseProfileRepository(client);
 
+  // The offline queue. One notifier, one durable store, one push. The
+  // repositories the UI holds are the offline-first ones, which delegate to the
+  // Supabase ones whenever the server is reachable — so there is a single
+  // create path, a single punch-list editor and a single history, not an online
+  // set and an offline set to keep in agreement.
+  final offlineStatus = OfflineStatusNotifier();
+  final drafts = LocalDraftBook(
+    const SharedPreferencesDraftStore(),
+    onChanged: (pending) =>
+        offlineStatus.setPendingIds(pending.map((d) => d.id).toSet()),
+  );
+
+  final items = OfflineFirstInspectionItemsRepository(
+    remote: SupabaseInspectionItemsRepository(client),
+    local: drafts,
+  );
+  final inspections = OfflineFirstInspectionsRepository(
+    remote: SupabaseInspectionsRepository(client),
+    local: drafts,
+    auth: auth,
+    status: offlineStatus,
+  );
+  final sync = DraftSync(
+    local: drafts,
+    sink: SupabaseDraftSink(client),
+    auth: auth,
+    status: offlineStatus,
+  );
+
   runApp(
     FieldProofApp(
-      auth: SupabaseAuthRepository(client),
+      auth: auth,
       profiles: profiles,
-      inspections: SupabaseInspectionsRepository(client),
+      inspections: inspections,
       items: items,
       photos: photos,
       source: ImagePickerPhotoSource(),
@@ -47,6 +80,8 @@ Future<void> main() async {
         renderer: const PdfReportRenderer(),
         sharer: const PrintingReportSharer(),
       ),
+      offline: offlineStatus,
+      onSync: sync.run,
     ),
   );
 }

@@ -65,25 +65,34 @@ Status key: ☐ not started · ◐ in progress · ☑ met with evidence
 
 | # | Criterion | Evidence |
 |---|---|---|
-| E1 | ☐ With connectivity disabled, an inspector creates and edits a draft inspection with items and photos. | Flutter integration test, network stubbed offline |
-| E2 | ☐ A local draft survives an app restart. | Flutter test: kill + relaunch, draft intact |
-| E3 | ☐ No local change is discarded without an explicit user action. | Test asserting no silent-drop path |
-| E4 | ☐ Draft state is visibly distinguishable from synced state in the UI. | Screenshot |
+E1 was written as one criterion covering the draft, its items **and** its photos. It is
+split, because only the first two are built: **E1a** closes here; **E1b** (offline photo
+capture) is deferred with its reason recorded in D27, not quietly dropped.
+
+| # | Criterion | Evidence |
+|---|---|---|
+| E1a | ☐ With the server unreachable, an inspector creates a draft inspection and adds, edits and deletes its punch items. | `offline_flow_test.dart` — the same New Inspection sheet and the same punch-list editor, driven through the widget tree with the remote repository failing · `offline_sync_test.dart` covers add/edit/delete at the repository |
+| E1b | ☐ **Deferred, not done.** The same, with photos. | Needs a durable local file store (`path_provider`), deterministic photo ids so a retry cannot duplicate a Storage object, and local-file rendering in the photo strip. D27 records why it is its own slice |
+| E2 | ☐ A local draft survives an app restart. | `offline_flow_test.dart` tears the widget tree down and rebuilds every stateful object over the same stored bytes · `offline_store_test.dart` reconstructs the queue from bytes alone, and round-trips through the real `shared_preferences` implementation |
+| E3 | ☐ No local change is discarded without an explicit user action. | `offline_sync_test.dart` — a failed push keeps the draft *and* its items, with the reason attached, across reconstruction; a failed write surfaces rather than reporting a save that did not happen; the local record is removed in exactly one place, after the server has been read back |
+| E4 | ☐ Draft state is visibly distinguishable from synced state in the UI. | A `Not synced` pill beside `Draft`, and the offline banner — both asserted in `offline_flow_test.dart`. Screenshot from real-device QA |
 
 ## F. Synchronization
 
 | # | Criterion | Evidence |
 |---|---|---|
-| F1 | ☐ On reconnect, pending drafts push to Supabase and are marked synced. | Flutter integration test |
-| F2 | ◐ Sync is idempotent — running it twice produces no duplicate rows. | pgTAP `050` ✅ run `d53d066` at the database level; no Flutter sync layer exists yet |
-| F3 | ☐ An interrupted sync resumes without data loss or duplication. | Test: fail mid-push, retry, assert consistency |
-| F4 | ☐ Sync failures surface to the user; they are never swallowed. | Test asserting error state is rendered |
+| F1 | ☐ On reconnect, pending drafts push to Supabase and are marked synced. | `offline_flow_test.dart` — Retry, and reopening the app, both push the queue and clear the marker · hosted smoke case 30 pushes an offline-origin draft to the real project through the production `SupabaseDraftSink`. "Marked synced" is a **deletion**, not a flag (D27) |
+| F2 | ☐ Sync is idempotent — running it twice produces no duplicate rows. | pgTAP `050` at the database level, now covering the merge-upsert the client actually sends as well as `DO NOTHING` · `offline_sync_test.dart` at the repository · **hosted smoke case 33** replays the push against real Supabase and asserts one inspection and two items |
+| F3 | ☐ An interrupted sync resumes without data loss or duplication. | `offline_sync_test.dart` — the parent lands, the items fail, the retry produces one of each; an item deleted locally between attempts is pruned from the server; a write that reports success but cannot be read back is treated as a failure, because RLS refuses silently |
+| F4 | ☐ Sync failures surface to the user; they are never swallowed. | `offline_flow_test.dart` renders the underlying error verbatim in the banner and keeps the draft · `offline_sync_test.dart` asserts the status carries it |
+| F5 | ☐ An unsynced draft cannot be submitted, and never looks submitted. | `offline_sync_test.dart` — `submit` raises `DraftNotSyncedException` and the record stays a local draft · `offline_flow_test.dart` — the Submit control is absent and the reason is shown · `offline_store_test.dart` — a local record has no code path to `submitted` |
+| F6 | ☐ Ownership survives the queue: it comes from the session and RLS, never from stored bytes. | `offline_sync_test.dart` — no session pushes nothing and loses nothing; a different session does not push another inspector's work · **hosted smoke case 35** — user B's queue holding A's id is refused by real RLS, and A's row is unchanged · pgTAP `050` — a merge cannot reassign `inspector_id` or land on another inspector's row |
 
 ## G. PDF
 
 | # | Criterion | Evidence |
 |---|---|---|
-| G1 | ◐ A PDF generates on-device with no network connection. | **Rendering is offline** — `PdfReportRenderer` is pure, takes a snapshot and returns bytes, and `report_renderer_test.dart` runs it with no network at all. **Loading the snapshot still needs the network**, so end-to-end offline generation belongs to the offline slice, not this one |
+| G1 | ◐ A PDF generates on-device with no network connection. | **Rendering is offline** — `PdfReportRenderer` is pure, takes a snapshot and returns bytes, and `report_renderer_test.dart` runs it with no network at all. **Loading the snapshot still needs the network.** This was recorded as belonging to the offline slice; it does not, and the earlier note was wrong. A report requires a *submitted* inspection (D21), and a submitted inspection is by definition server-backed — so offline generation would mean caching server records on the device, which D24 and D5 exclude. It stays ◐ and belongs to a caching slice that has not been scoped |
 | G2 | ◐ It contains site info, inspector name, inspection date, and every item with description, area, severity and status. | The snapshot provably carries every one of these (`report_snapshot_test.dart`) and the renderer consumes only the snapshot. **Not asserted by text extraction** — the `pdf` package compresses content streams, so a byte-level grep would prove nothing. A golden text test would need rendering with compression disabled |
 | G3 | ☑ Item photographs are embedded. | `report_renderer_test.dart` ✅ run `33432719089` — a document with a photo is materially larger than the identical one without, so the image bytes demonstrably land in the output |
 | G4 | ☑ Multi-page output is produced and correct. | `report_renderer_test.dart` ✅ — 60 items yield more than one `/Type /Page` object; 3 items yield a smaller document |

@@ -100,6 +100,97 @@ select is(
   'replayed item sync produces exactly one row'
 );
 
+-- ---------------------------------------------------------------- D5: the merge the client actually sends
+--
+-- The Flutter sync sends PostgREST's default upsert resolution, which is
+-- ON CONFLICT (id) DO UPDATE, not DO NOTHING. The difference matters: a draft
+-- whose first push failed part-way stays editable on the device, so a retry has
+-- to carry whatever changed since. DO NOTHING would push the row once and then
+-- silently ignore every later edit, and the inspector would be told their work
+-- had synced when the server held an older version of it.
+--
+-- What follows proves the existing policies already permit exactly that, and
+-- nothing more. NO MIGRATION WAS ADDED FOR THE OFFLINE SLICE — this is an
+-- assertion that was missing, not a policy that was.
+select lives_ok(
+  $$insert into public.inspections (id, inspector_id, site_name, inspection_date)
+    values ('c0000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111',
+            'Offline Draft Site, corrected', date '2026-08-27')
+    on conflict (id) do update set
+      site_name       = excluded.site_name,
+      inspection_date = excluded.inspection_date$$,
+  'a retried push may overwrite the caller''s own draft'
+);
+
+select is(
+  (select site_name from public.inspections where id = 'c0000000-0000-4000-8000-000000000001'),
+  'Offline Draft Site, corrected',
+  'the merge carries the edit made while the draft was still local'
+);
+
+select is(
+  (select count(*)::int from public.inspections where id = 'c0000000-0000-4000-8000-000000000001'),
+  1,
+  'and still leaves exactly one row'
+);
+
+-- The UPDATE policy's WITH CHECK governs the merged row, so a push cannot hand
+-- the inspection to someone else. Without it, an offline queue would be a way to
+-- write rows owned by another inspector.
+select throws_ok(
+  $$insert into public.inspections (id, inspector_id, site_name, inspection_date)
+    values ('c0000000-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222',
+            'Stolen', date '2026-08-27')
+    on conflict (id) do update set inspector_id = excluded.inspector_id$$,
+  '42501', null,
+  'a merge cannot reassign the inspection to another inspector'
+);
+
+-- And a merge cannot land on another inspector's row at all: the INSERT policy
+-- refuses the proposed row before the conflict is ever resolved.
+select throws_ok(
+  $$insert into public.inspections (id, inspector_id, site_name, inspection_date)
+    values ('b0000000-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222',
+            'Overwritten', date '2026-08-27')
+    on conflict (id) do update set site_name = excluded.site_name$$,
+  '42501', null,
+  'a merge cannot overwrite an inspection belonging to another inspector'
+);
+
+select is(
+  (select count(*)::int from public.inspections
+   where id = 'b0000000-0000-4000-8000-000000000001' and site_name = 'Overwritten'),
+  0,
+  'and the other inspector''s row is untouched'
+);
+
+-- Items merge on the same terms, including status — which an insert omits so the
+-- column default applies, but a re-push must carry, or an item resolved offline
+-- would sync back as open.
+select lives_ok(
+  $$insert into public.inspection_items (id, inspection_id, title, status)
+    values ('c1000000-0000-4000-8000-000000000001', 'c0000000-0000-4000-8000-000000000001',
+            'Offline item, edited', 'resolved')
+    on conflict (id) do update set
+      title  = excluded.title,
+      status = excluded.status$$,
+  'a retried item push may overwrite the caller''s own item'
+);
+
+select is(
+  (select title || '/' || status::text from public.inspection_items
+   where id = 'c1000000-0000-4000-8000-000000000001'),
+  'Offline item, edited/resolved',
+  'the item merge carries both the edit and the resolved state'
+);
+
+select is(
+  (select count(*)::int from public.inspection_items
+   where inspection_id = 'c0000000-0000-4000-8000-000000000001'),
+  1,
+  'and still leaves exactly one item'
+);
+
 -- storage_path is unique, so a replayed photo upload cannot create a second row.
 select throws_ok(
   $$insert into public.item_photos (item_id, inspection_id, storage_path, content_type, byte_size)

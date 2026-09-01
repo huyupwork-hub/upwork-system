@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../data/repositories.dart';
+import '../offline/offline_status.dart';
 import '../report/report_service.dart';
 import 'inspections_screen.dart';
 import 'sign_in_screen.dart';
@@ -18,6 +19,8 @@ class FieldProofApp extends StatelessWidget {
     required this.photos,
     required this.source,
     required this.reports,
+    this.offline,
+    this.onSync,
   });
 
   final AuthRepository auth;
@@ -27,6 +30,12 @@ class FieldProofApp extends StatelessWidget {
   final PhotosRepository photos;
   final PhotoSource source;
   final ReportService reports;
+
+  /// The offline queue's observable state, and the push it triggers. Both null
+  /// in a build with no local persistence wired; there is one production
+  /// wiring, in main.dart.
+  final OfflineStatusNotifier? offline;
+  final Future<void> Function()? onSync;
 
   @override
   Widget build(BuildContext context) {
@@ -42,6 +51,8 @@ class FieldProofApp extends StatelessWidget {
         photos: photos,
         source: source,
         reports: reports,
+        offline: offline,
+        onSync: onSync,
       ),
     );
   }
@@ -60,6 +71,8 @@ class AuthGate extends StatelessWidget {
     required this.photos,
     required this.source,
     required this.reports,
+    this.offline,
+    this.onSync,
   });
 
   final AuthRepository auth;
@@ -69,6 +82,12 @@ class AuthGate extends StatelessWidget {
   final PhotosRepository photos;
   final PhotoSource source;
   final ReportService reports;
+
+  /// The offline queue's observable state, and the push it triggers. Both null
+  /// in a build with no local persistence wired; there is one production
+  /// wiring, in main.dart.
+  final OfflineStatusNotifier? offline;
+  final Future<void> Function()? onSync;
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +108,8 @@ class AuthGate extends StatelessWidget {
           photos: photos,
           source: source,
           reports: reports,
+          offline: offline,
+          onSync: onSync,
         );
       },
     );

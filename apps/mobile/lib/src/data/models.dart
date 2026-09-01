@@ -98,9 +98,21 @@ class NewInspection {
   /// RLS WITH CHECK would reject it regardless; this makes the attempt
   /// unrepresentable one layer earlier.
   ///
+  /// `id` is device-generated and also supplied by the repository. D5 always
+  /// said so — `inspections.id` is documented in the migration as "the
+  /// idempotency key for first sync" — but until the offline slice the client
+  /// omitted it and let `gen_random_uuid()` apply, so a retried write could not
+  /// be recognised as the same write. Sending it is what turns a push into an
+  /// upsert on a key both sides already agree on.
+  ///
   /// `status` is omitted so the column default ('draft') applies, and
   /// `submitted_at` is omitted so the submitted_at/status CHECK holds by default.
-  Map<String, dynamic> toInsert({required String inspectorId}) => {
+  Map<String, dynamic> toInsert({
+    required String inspectorId,
+    required String id,
+  }) =>
+      {
+        'id': id,
         'inspector_id': inspectorId,
         'site_name': siteName.trim(),
         'site_address': _nullIfBlank(siteAddress),
@@ -270,12 +282,17 @@ class NewInspectionItem {
   /// refuse it anyway; this makes it unrepresentable a layer earlier — the same
   /// rule `NewInspection` follows for `inspector_id`.
   ///
+  /// `id` is device-generated for the same reason it is on an inspection: it is
+  /// the key a retried sync upserts on.
+  ///
   /// `status` is omitted so the column default ('open') applies.
   Map<String, dynamic> toInsert({
     required String inspectionId,
     required int sortOrder,
+    required String id,
   }) =>
       {
+        'id': id,
         'inspection_id': inspectionId,
         'sort_order': sortOrder,
         'title': title.trim(),
@@ -457,11 +474,77 @@ class InspectionSearch {
   /// are tsquery syntax, and passing them through would either error or let a
   /// caller compose an expression of their own.
   static String? toTsQuery(String raw) {
-    final terms = RegExp(r'[\p{L}\p{N}]+', unicode: true)
-        .allMatches(raw.toLowerCase())
-        .map((m) => m.group(0)!)
-        .toList();
+    final terms = tokenize(raw);
     if (terms.isEmpty) return null;
     return terms.map((t) => '$t:*').join(' & ');
   }
+
+  /// The tokenizer both halves share.
+  ///
+  /// Public because the offline queue has to match the same way. Postgres
+  /// tokenises the stored vector with the `'simple'` configuration and the app
+  /// tokenises the query; if the two disagreed, a local-only draft and a
+  /// server-backed one would answer the same search differently.
+  static List<String> tokenize(String raw) =>
+      RegExp(r'[\p{L}\p{N}]+', unicode: true)
+          .allMatches(raw.toLowerCase())
+          .map((m) => m.group(0)!)
+          .toList(growable: false);
+
+  /// Whether an inspection held only on this device satisfies [query].
+  ///
+  /// Deliberately the same semantics as [toTsQuery] rather than a substring
+  /// scan: every term must be a **prefix** of some token drawn from site name,
+  /// address and client — exactly what `term:*` against the stored `search_tsv`
+  /// means. "north" finds "Northgate"; "gate" does not. A local draft that
+  /// matched on infix would look like a different product from the same search
+  /// box (D22).
+  static bool matches(
+    String query, {
+    required String siteName,
+    String? siteAddress,
+    String? clientName,
+  }) {
+    final terms = tokenize(query);
+    if (terms.isEmpty) return true;
+
+    final haystack = tokenize(
+      [siteName, siteAddress ?? '', clientName ?? ''].join(' '),
+    );
+    return terms.every(
+      (term) => haystack.any((token) => token.startsWith(term)),
+    );
+  }
+}
+
+/// The one definition of history order, so nothing can drift from it.
+///
+/// `inspection_date DESC, created_at DESC, id DESC` — the same total order
+/// `SupabaseInspectionsRepository` asks Postgres for. The final key is what
+/// makes it *total*: two inspections recorded on the same day could otherwise
+/// come back in either order between calls. It is applied client-side only when
+/// a list has to be assembled from more than one source — a merged offline
+/// history — never as a substitute for ordering in the database.
+class InspectionOrder {
+  const InspectionOrder._();
+
+  static int compare(Inspection a, Inspection b) {
+    final byDate = b.inspectionDate.compareTo(a.inspectionDate);
+    if (byDate != 0) return byDate;
+
+    final ac = a.createdAt;
+    final bc = b.createdAt;
+    if (ac != null && bc != null) {
+      final byCreated = bc.compareTo(ac);
+      if (byCreated != 0) return byCreated;
+    } else if (ac == null && bc != null) {
+      return 1;
+    } else if (ac != null && bc == null) {
+      return -1;
+    }
+    return b.id.compareTo(a.id);
+  }
+
+  static List<Inspection> newestFirst(Iterable<Inspection> rows) =>
+      [...rows]..sort(compare);
 }
