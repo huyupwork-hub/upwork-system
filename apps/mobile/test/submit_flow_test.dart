@@ -91,8 +91,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Finder submitButton() =>
-      find.byKey(const Key('submit-inspection-button'));
+  Finder submitButton() => find.byKey(const Key('submit-inspection-button'));
 
   group('the control', () {
     testWidgets('a draft offers a submit action', (tester) async {
@@ -138,7 +137,8 @@ void main() {
       await tester.tap(submitButton());
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(CupertinoActionSheetAction, 'Cancel'));
+      await tester
+          .tap(find.widgetWithText(CupertinoActionSheetAction, 'Cancel'));
       await tester.pumpAndSettle();
 
       expect(inspections.submitted, isEmpty);
