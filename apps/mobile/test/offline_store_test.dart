@@ -43,7 +43,8 @@ void main() {
       );
 
   group('LocalDraftBook', () {
-    test('a draft written by one book is read by the next one over the same '
+    test(
+        'a draft written by one book is read by the next one over the same '
         'bytes', () async {
       final store = MemoryDraftStore();
       await LocalDraftBook(store).put(draft(items: [item()]));
@@ -83,7 +84,8 @@ void main() {
       expect(items.last.sortOrder, 1);
     });
 
-    test('sync state and the last error survive, so a crash mid-push is '
+    test(
+        'sync state and the last error survive, so a crash mid-push is '
         'visible on relaunch', () async {
       final store = MemoryDraftStore();
       await LocalDraftBook(store).put(

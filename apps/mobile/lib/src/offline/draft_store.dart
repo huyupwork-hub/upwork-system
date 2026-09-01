@@ -193,8 +193,10 @@ class LocalDraftBook {
   static List<LocalDraft> _decode(String? raw) {
     if (raw == null || raw.isEmpty) return const [];
     try {
-      final decoded = json.decode(raw);
-      if (decoded is! List) return const [];
+      // Typed as Object? rather than left dynamic, so `strict-casts` has
+      // something to check and nothing here is an implicit downcast.
+      final decoded = json.decode(raw) as Object?;
+      if (decoded is! List<dynamic>) return const [];
       return decoded
           .whereType<Map<String, dynamic>>()
           .map(LocalDraft.fromJson)

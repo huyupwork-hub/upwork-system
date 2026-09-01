@@ -832,8 +832,8 @@ void main() {
     expect(await bBook.all(), hasLength(1));
 
     // A's row is untouched.
-    final row = (await inspectionsA.listMine())
-        .firstWhere((i) => i.id == offlineId);
+    final row =
+        (await inspectionsA.listMine()).firstWhere((i) => i.id == offlineId);
     expect(row.siteName, offlineSite);
     expect(row.inspectorId, userAId);
   });

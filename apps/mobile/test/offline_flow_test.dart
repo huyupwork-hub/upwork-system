@@ -208,7 +208,8 @@ void main() {
     expect(find.byKey(const Key('unsynced-pill')), findsNothing);
   });
 
-  testWidgets('punch items can be added to an offline draft, through the same '
+  testWidgets(
+      'punch items can be added to an offline draft, through the same '
       'editor', (tester) async {
     await launch(tester);
     remoteInspections.failWith = offline;

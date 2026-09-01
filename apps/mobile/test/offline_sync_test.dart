@@ -132,7 +132,8 @@ void main() {
       expect(await book.all(), isEmpty);
     });
 
-    test('the id is minted before the attempt, so a lost response cannot '
+    test(
+        'the id is minted before the attempt, so a lost response cannot '
         'duplicate', () async {
       // The insert reached Postgres; only the response was lost. The local
       // record therefore has to carry the primary key the server already holds.
@@ -263,7 +264,8 @@ void main() {
       expect(rows.map((r) => r.id), [created.id, 'server-1']);
     });
 
-    test('with the server unreachable, history is the local drafts and the '
+    test(
+        'with the server unreachable, history is the local drafts and the '
         'status says so', () async {
       final created = await createOffline();
 
@@ -398,7 +400,8 @@ void main() {
       expect(row['site_name'], 'Northgate Retail Park');
     });
 
-    test('inspector_id comes from the live session, never from the stored '
+    test(
+        'inspector_id comes from the live session, never from the stored '
         'record', () async {
       final created = await createOffline();
       // A tampered or stale local record must not decide who owns the row. RLS
@@ -569,7 +572,8 @@ void main() {
       expect((await book.all()).single.items, hasLength(1));
     });
 
-    test('an item deleted locally after a partial sync is removed from the '
+    test(
+        'an item deleted locally after a partial sync is removed from the '
         'server', () async {
       final created = await createOffline();
       final doomed = await items.create(
