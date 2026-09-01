@@ -3,8 +3,21 @@
 A field inspection / punch-list application — Flutter mobile app, Supabase backend, Next.js
 admin dashboard. Built as verifiable engineering evidence, not as a startup.
 
-**Status: Gate 0 — foundation only.** No product code yet. See `docs/ACCEPTANCE.md` for
-what "done" means and what has actually been demonstrated.
+**Status: V1 core complete and deployed.** Auth, inspections, punch items, photos,
+PDF, search, the admin console and offline draft sync are built, gated by CI, and
+proven on Android hardware. See [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) for what
+"done" means here and exactly which evidence exists for each criterion.
+
+## Try it
+
+| | |
+|---|---|
+| **Review console** | https://upwork-system-thun-viet.vercel.app |
+| **Android build** | [v0.1.0-demo](https://github.com/huyupwork-hub/upwork-system/releases/tag/v0.1.0-demo) |
+
+Credentials and a suggested walkthrough are in [`docs/DEMO.md`](docs/DEMO.md). Both
+demo accounts are published deliberately — the security model is the part worth
+reviewing, so it should be possible to push against it.
 
 ## What it does
 
@@ -16,6 +29,7 @@ An administrator reviews submitted inspections from a web dashboard, read-only.
 
 | Document | Purpose |
 |---|---|
+| [`docs/DEMO.md`](docs/DEMO.md) | Public demo: URLs, credentials, and what to look at |
 | [`docs/SPEC.md`](docs/SPEC.md) | Problem, actors, workflows, scope and exclusions |
 | [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) | Measurable V1 completion criteria and required evidence |
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Schema, ownership model, RLS matrix, storage layout |
