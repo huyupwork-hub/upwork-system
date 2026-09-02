@@ -13,6 +13,24 @@ name: Hosted Supabase smoke test
 on:
   workflow_dispatch:
   workflow_call:
+    # Named one by one rather than taking `secrets: inherit` from the caller.
+    # This list IS the boundary: the privileged cleanup key is not on it and
+    # therefore cannot cross into this workflow from ci.yml, whatever the
+    # repository happens to hold. The cleanup job below gets its key from a
+    # GitHub Environment instead, which no other job declares.
+    secrets:
+      SUPABASE_URL:
+        required: true
+      SUPABASE_ANON_KEY:
+        required: true
+      SMOKE_USER_A_EMAIL:
+        required: true
+      SMOKE_USER_A_PASSWORD:
+        required: true
+      SMOKE_USER_B_EMAIL:
+        required: true
+      SMOKE_USER_B_PASSWORD:
+        required: true
 
 permissions:
   contents: read
@@ -37,6 +55,11 @@ jobs:
       #
       # Credentials arrive as environment variables rather than --dart-define:
       # defines land in the process command line and in the step echo, env does not.
+      #
+      # There is deliberately no privileged key in this env block. The test
+      # decodes the key it is handed and refuses to start unless the claim is
+      # `anon` — a privileged key would bypass RLS and every isolation assertion
+      # in the file would pass while proving nothing.
       - name: Hosted round trip
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -45,32 +68,77 @@ jobs:
           SMOKE_USER_A_PASSWORD: ${{ secrets.SMOKE_USER_A_PASSWORD }}
           SMOKE_USER_B_EMAIL: ${{ secrets.SMOKE_USER_B_EMAIL }}
           SMOKE_USER_B_PASSWORD: ${{ secrets.SMOKE_USER_B_PASSWORD }}
-          # Carried in every fixture name and written into the manifest, so
-          # the cleanup step below can bound its sweep to this run and
-          # nothing else. The run id is unique, reaches both steps without
-          # either telling the other, and makes a leaked row traceable to
-          # the run that made it.
+          # Identifies the run that wrote the manifest, so the cleanup job can
+          # tell this run's record from one left in a reused workspace. It is
+          # not a delete filter: nothing is ever removed by name or pattern.
           SMOKE_RUN_TOKEN: run${{ github.run_id }}x${{ github.run_attempt }}
           SMOKE_MANIFEST: build/smoke-manifest.json
         run: flutter test test_hosted/ --reporter expanded
 
-      # Runs whatever the test did, because the fixture most likely to be
-      # stranded is the one a failing run created and never reached its own
-      # cleanup for. The manifest is written as rows are created, so a run
-      # that died halfway still names what it made.
+      # `if: always()` because the fixture most likely to be stranded belongs to
+      # a run that failed partway. The manifest is flushed as each row is
+      # created, so a run that died halfway still names what it made.
       #
-      # This step is why the leak is fixed rather than merely reduced.
-      # Submit is one-way (D10) and the delete policy requires a draft (D17),
-      # so the inspection case 22 submits on purpose cannot be removed by the
-      # anon key that created it. No policy changes to accommodate that: a
-      # separate step holds a privileged key instead, and the test process
-      # never sees it — the smoke test still refuses to start under anything
-      # but an anon key, which is the property it exists to prove.
-      #
-      # Without the secret the script warns and exits 0, so a fork or a fresh
-      # clone that has never had one is not permanently red.
-      - name: Purge this run's fixtures
+      # It holds UUIDs and storage paths and nothing else — no credentials, no
+      # user data.
+      - name: Keep the run manifest
         if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: apps/mobile/build/smoke-manifest.json
+          if-no-files-found: warn
+          retention-days: 1
+
+  # A separate job, so the privileged key lives behind an environment boundary
+  # and is never present in the process that runs the assertions.
+  #
+  # `submit` is one-way (D10) and the delete policy requires a draft (D17), so
+  # the inspection case 22 submits on purpose cannot be removed by the anon key
+  # that created it — PostgREST reported that zero-row delete as success, and a
+  # `SMOKE ... do-not-keep` row accumulated on every run. No policy changes to
+  # fix it. This job holds a key the smoke job does not, and deletes exactly the
+  # ids and paths that run recorded.
+  cleanup:
+    name: Purge this run's fixtures
+    needs: smoke
+    # Runs whatever the smoke job did, which is the point.
+    if: always()
+    runs-on: [self-hosted, Linux, X64]
+    # The isolation boundary. SUPABASE_SERVICE_ROLE_KEY is stored as a secret of
+    # this environment and nowhere else, so it resolves here and is empty
+    # everywhere else in the repository — including in this workflow's own smoke
+    # job above. Protection rules on the environment apply to this job alone.
+    environment: hosted-smoke-cleanup
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+
+      # continue-on-error, not failure: a smoke job that died before writing a
+      # manifest has nothing to hand over, and the purge treats an absent
+      # manifest as "nothing nameable, delete nothing". The smoke job's own
+      # case 38 is what fails when a fixture goes unrecorded.
+      - name: Fetch the run manifest
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: smoke-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: apps/mobile/build
+
+      # Deletes explicit ids and explicit storage paths, nothing else. Storage
+      # goes through the Storage API, never SQL — Postgres refuses a direct
+      # delete from storage.objects because it would leave the file behind.
+      #
+      # Without the secret the script warns and exits 0, so a fork, a clone, or
+      # an unconfigured environment is not permanently red.
+      - name: Purge
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

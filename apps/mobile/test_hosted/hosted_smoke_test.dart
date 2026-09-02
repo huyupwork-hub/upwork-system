@@ -112,6 +112,10 @@ void main() {
   ItemPhoto? photo;
 
   InspectionItem? item;
+
+  /// The item under [created]. Kept after `item` is nulled in case 23, because
+  /// case 38 has to name the one row a run is allowed to leave behind.
+  String? submittedItemId;
   Inspection? histOlder;
   Inspection? histNewer;
   Inspection? bUnique;
@@ -184,6 +188,8 @@ void main() {
     // slice depends on — so the purge knows about this row even if the sync
     // case never runs.
     manifest.inspection(offlineId);
+    manifest.item(offlineItemA);
+    manifest.item(offlineItemB);
 
     authA = SupabaseAuthRepository(clientA);
     profilesA = SupabaseProfileRepository(clientA);
@@ -359,6 +365,9 @@ void main() {
         severity: ItemSeverity.critical,
       ),
     );
+
+    submittedItemId = item!.id;
+    manifest.item(item!.id);
 
     expect(item!.inspectionId, created!.id);
     expect(item!.severity, ItemSeverity.critical);
@@ -984,6 +993,21 @@ void main() {
       expect(residue['status'], 'submitted');
     }
 
+    // Items too. Case 23 proves the one under the submitted inspection cannot
+    // be deleted, so exactly that one may remain and nothing else.
+    final itemIds = manifest.itemIds.toList();
+    if (itemIds.isNotEmpty) {
+      final remainingItems = await clientA
+          .from('inspection_items')
+          .select('id')
+          .inFilter('id', itemIds);
+      expect(
+        remainingItems.map((r) => r['id'] as String).toSet(),
+        submittedItemId == null ? <String>{} : {submittedItemId!},
+        reason: 'only the item under the submitted inspection may survive',
+      );
+    }
+
     // No photo metadata, and no bytes. The object outliving its row is the
     // failure mode that leaves storage no client can ever reach.
     final photoRows = await clientA
@@ -1041,11 +1065,16 @@ class _RunManifest {
   final String path;
   final String runToken;
   final Set<String> inspectionIds = <String>{};
+  final Set<String> itemIds = <String>{};
   final Set<String> storagePaths = <String>{};
   final Set<String> userIds = <String>{};
 
   void inspection(String id) {
     if (inspectionIds.add(id)) _flush();
+  }
+
+  void item(String id) {
+    if (itemIds.add(id)) _flush();
   }
 
   void object(String storagePath) {
@@ -1067,6 +1096,7 @@ class _RunManifest {
           'runToken': runToken,
           'userIds': userIds.toList()..sort(),
           'inspectionIds': inspectionIds.toList()..sort(),
+          'itemIds': itemIds.toList()..sort(),
           'storagePaths': storagePaths.toList()..sort(),
         }),
       );

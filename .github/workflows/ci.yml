@@ -208,7 +208,18 @@ jobs:
     # once. It does NOT depend on the mobile job — a smoke-only invocation is a
     # `workflow_dispatch` on hosted-smoke.yml and rebuilds no APK.
     uses: ./.github/workflows/hosted-smoke.yml
-    secrets: inherit
+    # Named one by one rather than `secrets: inherit`. Inherit hands the
+    # called workflow everything this repository holds, which would include
+    # the privileged cleanup key. This list is the boundary, and it is short
+    # enough to read: the key is not on it, so it cannot reach the smoke job.
+    # The cleanup job takes its key from a GitHub Environment instead.
+    secrets:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SMOKE_USER_A_EMAIL: ${{ secrets.SMOKE_USER_A_EMAIL }}
+      SMOKE_USER_A_PASSWORD: ${{ secrets.SMOKE_USER_A_PASSWORD }}
+      SMOKE_USER_B_EMAIL: ${{ secrets.SMOKE_USER_B_EMAIL }}
+      SMOKE_USER_B_PASSWORD: ${{ secrets.SMOKE_USER_B_PASSWORD }}
 
   # iOS lives in .github/workflows/ios.yml — it needs a macOS runner, which this
   # workflow has no execution path to. Keeping it here left a permanently red job
