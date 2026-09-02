@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { toTsQuery } from './search';
 import type {
   FindingSummary,
+  GalleryPhoto,
   InspectionDetail,
   InspectionItem,
   ItemPhoto,
@@ -22,6 +23,7 @@ import type {
 export interface AdminRepository {
   listSubmitted(query?: string | null): Promise<SubmittedInspection[]>;
   getSubmitted(id: string): Promise<InspectionDetail | null>;
+  listPhotos(): Promise<GalleryPhoto[]>;
 }
 
 const INSPECTION_COLUMNS =
@@ -190,4 +192,88 @@ export class SupabaseAdminRepository implements AdminRepository {
 
     return { inspection, items, photos };
   }
+
+  /**
+   * Every photograph the reviewer is allowed to see, across all submitted
+   * inspections.
+   *
+   * No filter on inspection status here, and none needed: the admin policies on
+   * item_photos and on storage.objects both reach through the owning inspection
+   * and admit only submitted ones. Adding `.eq` would state an intent the
+   * database already enforces, and would read as though it were the boundary.
+   *
+   * URLs are signed in one batch rather than one request per photo. A gallery
+   * of forty photographs would otherwise be forty round trips before the page
+   * could render.
+   */
+  async listPhotos(): Promise<GalleryPhoto[]> {
+    const { data, error } = await this.client
+      .from('item_photos')
+      // The site name is reached *through* the finding, not directly.
+      // item_photos has exactly one foreign key — a composite
+      // (item_id, inspection_id) -> inspection_items — and none to inspections
+      // at all, so asking PostgREST to embed inspections here fails with "could
+      // not find a relationship". The item owns that edge, so the embed nests.
+      .select(
+        'id, caption, storage_path, inspection_id, created_at, ' +
+          'inspection_items!item_photos_item_fk(' +
+          'title, severity, inspections(site_name))',
+      )
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    if (error) throw new Error(error.message);
+
+    const rows = (data ?? []) as unknown as GalleryRow[];
+    if (rows.length === 0) return [];
+
+    const paths = rows.map((r) => r.storage_path);
+    const { data: signed } = await this.client.storage
+      .from('inspection-photos')
+      .createSignedUrls(paths, 60 * 10);
+
+    // Matched by path rather than by index: a batch that drops or reorders an
+    // entry would otherwise attach one photograph's URL to another's caption,
+    // which is a worse failure than a missing image.
+    const urlByPath = new Map<string, string>();
+    for (const entry of signed ?? []) {
+      if (entry.path && entry.signedUrl) urlByPath.set(entry.path, entry.signedUrl);
+    }
+
+    return rows.map((r) => {
+      const item = one(r.inspection_items);
+      const inspection = one(item?.inspections);
+      return {
+        id: String(r.id),
+        caption: r.caption ?? null,
+        url: urlByPath.get(r.storage_path) ?? null,
+        inspectionId: String(r.inspection_id),
+        inspectionName: inspection?.site_name ?? 'Unknown inspection',
+        itemTitle: item?.title ?? 'Untitled finding',
+        severity: (item?.severity as Severity) ?? 'low',
+      };
+    });
+  }
+}
+
+interface GalleryItem {
+  title?: string | null;
+  severity?: string | null;
+  inspections?:
+    | { site_name?: string | null }
+    | { site_name?: string | null }[]
+    | null;
+}
+
+interface GalleryRow {
+  id: string;
+  caption: string | null;
+  storage_path: string;
+  inspection_id: string;
+  inspection_items?: GalleryItem | GalleryItem[] | null;
+}
+
+/** PostgREST returns a nested to-one either as an object or a one-element array. */
+function one<T>(value: T | T[] | null | undefined): T | undefined {
+  if (!value) return undefined;
+  return Array.isArray(value) ? value[0] : value;
 }

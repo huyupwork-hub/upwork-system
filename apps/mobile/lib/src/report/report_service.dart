@@ -28,6 +28,18 @@ class ReportService {
   final ReportRenderer _renderer;
   final ReportSharer _sharer;
 
+  /// Loads what the report will contain, without rendering or sharing it.
+  ///
+  /// The preview screen shows this. Sharing then goes through
+  /// [generateAndShare], which loads again — so the preview and the document
+  /// are built from the same loader rather than from two descriptions of it
+  /// that could drift apart.
+  ///
+  /// Throws [InspectionNotSubmittedException] for a draft, for the same reason
+  /// and at the same point as generating would.
+  Future<ReportSnapshot> loadSnapshot(Inspection inspection) =>
+      _loader.load(inspection);
+
   /// Generates and hands off the report.
   ///
   /// Throws [InspectionNotSubmittedException] for a draft — checked by the

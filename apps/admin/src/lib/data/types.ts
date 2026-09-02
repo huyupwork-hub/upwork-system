@@ -60,3 +60,19 @@ export interface InspectionDetail {
   items: InspectionItem[];
   photos: ItemPhoto[];
 }
+
+/**
+ * One photograph, with enough context to be understood away from its
+ * inspection. Used by the gallery, which spans every submitted inspection the
+ * reviewer can see.
+ */
+export interface GalleryPhoto {
+  id: string;
+  caption: string | null;
+  /** Time-limited signed URL, or null when one could not be minted. */
+  url: string | null;
+  inspectionId: string;
+  inspectionName: string;
+  itemTitle: string;
+  severity: Severity;
+}

@@ -16,6 +16,11 @@ import { SubmittedPill } from './Badges';
  * policy scopes). The status column is still shown rather than assumed: a
  * reviewer should be able to see the state of what they are reading, not infer
  * it from the fact that the page loaded.
+ *
+ * The reference design carries a Sync column. It is absent here on purpose: an
+ * unsynced draft has by definition never reached the server, so nothing the
+ * console can see is ever anything but synced, and the column would read the
+ * same word on every row forever.
  */
 export function InspectionsTable({
   inspections,
@@ -46,6 +51,9 @@ export function InspectionsTable({
           <th scope="col">Severity</th>
           <th scope="col">Submitted</th>
           <th scope="col">Status</th>
+          <th scope="col">
+            <span className="sr-only">Open</span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -66,11 +74,16 @@ export function InspectionsTable({
               <FindingsCell findings={row.findings} />
             </td>
             <td>
-              <SeverityCounts findings={row.findings} />
+              <SeverityCell findings={row.findings} />
             </td>
             <td className="nowrap">{formatTimestamp(row.submittedAt)}</td>
             <td>
               <SubmittedPill />
+            </td>
+            <td className="nowrap">
+              <a className="open-link" href={`/inspections/${row.id}`}>
+                Open
+              </a>
             </td>
           </tr>
         ))}
@@ -103,25 +116,47 @@ function FindingsCell({ findings }: { findings?: FindingSummary }) {
 }
 
 /**
- * Severity counts, worst first, and only the ones that occur.
+ * The design's proportional bar, above the counts in words.
  *
- * Four zeroes would be noise, and would make an inspection with a single scuff
- * look as urgent as one with three critical defects. The number is spelled out
- * beside the colour for the same reason the mobile chip is: colour alone
- * excludes anyone who cannot separate these hues.
+ * The bar alone would be colour carrying meaning on its own, which excludes
+ * anyone who cannot separate these hues — and a test named "spells the severity
+ * level out beside its colour" exists to stop exactly that regression. So the
+ * bar is an addition to the words, never a replacement for them.
+ *
+ * Only severities that occur appear, in either form. Four zeroes would be noise
+ * and would make an inspection with a single scuff look as urgent as one with
+ * three critical defects.
  */
-function SeverityCounts({ findings }: { findings?: FindingSummary }) {
+function SeverityCell({ findings }: { findings?: FindingSummary }) {
   if (!findings || findings.total === 0) return <span className="muted">—</span>;
 
   const present = SEVERITY_ORDER.filter((s) => findings.bySeverity[s] > 0);
+  const spoken = present
+    .map((s) => `${findings.bySeverity[s]} ${SEVERITY_LABEL[s]}`)
+    .join(', ');
+
   return (
-    <span className="sev-counts">
-      {present.map((s) => (
-        <span key={s} className={`sev-count severity-${s}`}>
-          <i aria-hidden="true" />
-          {findings.bySeverity[s]} {SEVERITY_LABEL[s]}
+    <span className="sev-cell">
+      <span className="sevbar">
+        <span className="sevbar-track" role="img" aria-label={spoken} title={spoken}>
+          {present.map((s) => (
+            <span
+              key={s}
+              className={`sevbar-seg ${s}`}
+              style={{ width: `${(findings.bySeverity[s] / findings.total) * 100}%` }}
+            />
+          ))}
         </span>
-      ))}
+        <span className="count">{findings.total}</span>
+      </span>
+      <span className="sev-counts">
+        {present.map((s) => (
+          <span key={s} className={`sev-count severity-${s}`}>
+            <i aria-hidden="true" />
+            {findings.bySeverity[s]} {SEVERITY_LABEL[s]}
+          </span>
+        ))}
+      </span>
     </span>
   );
 }
