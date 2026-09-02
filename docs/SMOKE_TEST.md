@@ -151,12 +151,38 @@ per CI run. Six had accumulated before anyone looked at the demo queue.
 
 ### Where the privileged key lives
 
-Two jobs in this workflow, one boundary between them.
+Two workflows, one boundary between them.
 
-| Job | Environment | Holds the key |
+| Workflow / job | Environment | Holds the key |
 | --- | --- | --- |
-| `smoke` | none | **No.** `ci.yml` passes six secrets by name and this is not one of them. The test also decodes the key it is given and refuses to start unless the claim is `anon`. |
-| `cleanup` | `hosted-smoke-cleanup` | **Yes, and only here.** |
+| `hosted-smoke.yml` → `smoke` | none | **No.** `ci.yml` passes six secrets by name and this is not one of them. The test also decodes the key it is given and refuses to start unless the claim is `anon`. |
+| `smoke-cleanup.yml` → `purge` | `hosted-smoke-cleanup` | **Yes, and only here.** |
+
+Cleanup is a separate workflow rather than a second job, and that is not
+cosmetic. It *was* a job in `hosted-smoke.yml`, gated by the same environment,
+and it never ran — proven by two runs of the same job:
+
+| Invocation | `SUPABASE_SERVICE_ROLE_KEY` |
+| --- | --- |
+| `workflow_dispatch` on hosted-smoke.yml | `***` |
+| `pull_request` → ci.yml → `workflow_call` | *(blank)* |
+
+In a workflow invoked with `workflow_call`, the `secrets` context holds only
+what the caller passed; environment secrets are not merged in. `SUPABASE_URL`
+resolved in both because ci.yml passes it by name. Passing the cleanup key the
+same way would have worked and would have put it in scope for the whole called
+workflow, including the smoke job — the thing this separation exists to prevent.
+A `workflow_run` fires a real run of its own, where an environment secret
+resolves normally.
+
+It listens for **CI** as well as for the smoke workflow: a reusable workflow
+invoked with `workflow_call` produces no run of its own, so listening only for
+"Hosted Supabase smoke test" would catch the manual dispatch and miss every push
+and pull request — the path that actually accumulates rows.
+
+`workflow_run` only fires for a workflow file that exists on the **default
+branch**, so cleanup starts working once this is merged, not while it sits on a
+branch.
 
 No other job in the repository — Database + RLS, Mobile, Admin, Secret hygiene —
 names a privileged secret at all.
