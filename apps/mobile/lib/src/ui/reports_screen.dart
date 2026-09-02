@@ -6,8 +6,8 @@ import '../data/models.dart';
 import '../data/repositories.dart';
 import '../offline/offline_status.dart';
 import '../report/report_service.dart';
-import '../report/report_snapshot.dart';
 import 'presentation.dart';
+import 'report_preview_screen.dart';
 import 'theme.dart';
 
 /// Reports: which inspections can produce a document, and which cannot yet.
@@ -42,11 +42,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
   List<Inspection>? _rows;
   String? _error;
 
-  /// The inspection currently being rendered, so only its row shows a spinner.
-  String? _busyId;
-  ReportStage? _stage;
-  String? _reportError;
-
   @override
   void initState() {
     super.initState();
@@ -64,38 +59,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  Future<void> _generate(Inspection inspection) async {
-    if (_busyId != null) return;
-    setState(() {
-      _busyId = inspection.id;
-      _reportError = null;
-    });
-    try {
-      await widget.reports.generateAndShare(
-        inspection,
-        onStage: (stage) {
-          if (mounted) setState(() => _stage = stage);
-        },
-      );
-    } on InspectionNotSubmittedException catch (e) {
-      if (mounted) setState(() => _reportError = e.toString());
-    } catch (e) {
-      if (mounted) setState(() => _reportError = e.toString());
-    } finally {
-      if (mounted) {
-        setState(() {
-          _busyId = null;
-          _stage = null;
-        });
-      }
-    }
+  /// Opens the preview. Sharing happens there, from the same snapshot the
+  /// reader is looking at, rather than from a button that produces a document
+  /// nobody has seen.
+  Future<void> _preview(Inspection inspection) async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => ReportPreviewScreen(
+          inspection: inspection,
+          reports: widget.reports,
+        ),
+      ),
+    );
   }
-
-  static String _stageLabel(ReportStage stage) => switch (stage) {
-        ReportStage.loading => 'Collecting the inspection…',
-        ReportStage.rendering => 'Building the PDF…',
-        ReportStage.sharing => 'Opening share sheet…',
-      };
 
   @override
   Widget build(BuildContext context) {
@@ -156,15 +132,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (_reportError != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-            child: Text(
-              _reportError!,
-              key: const Key('reports-generate-error'),
-              style: const TextStyle(fontSize: 13, color: AppColors.red),
-            ),
-          ),
         SectionHeader(label: 'Ready to issue (${ready.length})'),
         if (ready.isEmpty)
           const Padding(
@@ -178,14 +145,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           InsetCard(
             children: [
               for (final row in ready)
-                _ReportRow(
-                  inspection: row,
-                  busy: _busyId == row.id,
-                  stageLabel: _busyId == row.id && _stage != null
-                      ? _stageLabel(_stage!)
-                      : null,
-                  onGenerate: () => _generate(row),
-                ),
+                _ReportRow(inspection: row, onOpen: () => _preview(row)),
             ],
           ),
         if (pending.isNotEmpty) ...[
@@ -213,22 +173,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
 }
 
 class _ReportRow extends StatelessWidget {
-  const _ReportRow({
-    required this.inspection,
-    required this.busy,
-    required this.onGenerate,
-    this.stageLabel,
-  });
+  const _ReportRow({required this.inspection, required this.onOpen});
 
   final Inspection inspection;
-  final bool busy;
-  final String? stageLabel;
-  final VoidCallback onGenerate;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return CupertinoButton(
+      key: Key('report-open-${inspection.id}'),
       padding: const EdgeInsets.fromLTRB(AppMetrics.gutter, 12, 14, 12),
+      minimumSize: Size.zero,
+      borderRadius: BorderRadius.zero,
+      onPressed: onOpen,
       child: Row(
         children: [
           Expanded(
@@ -247,16 +204,13 @@ class _ReportRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  stageLabel ??
-                      [
-                        NewInspection.dateOnly(inspection.inspectionDate),
-                        if (inspection.clientName != null)
-                          inspection.clientName!,
-                      ].join('  ·  '),
-                  style: TextStyle(
+                  [
+                    NewInspection.dateOnly(inspection.inspectionDate),
+                    if (inspection.clientName != null) inspection.clientName!,
+                  ].join('  ·  '),
+                  style: const TextStyle(
                     fontSize: 13,
-                    color:
-                        stageLabel != null ? AppColors.blue : AppColors.label2,
+                    color: AppColors.label2,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -265,25 +219,11 @@ class _ReportRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          if (busy)
-            const CupertinoActivityIndicator(radius: 10)
-          else
-            CupertinoButton(
-              key: Key('report-pdf-${inspection.id}'),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-              minimumSize: Size.zero,
-              borderRadius: BorderRadius.circular(8),
-              color: AppColors.blueTint,
-              onPressed: onGenerate,
-              child: const Text(
-                'PDF',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.blue,
-                ),
-              ),
-            ),
+          const Icon(
+            CupertinoIcons.chevron_forward,
+            size: 16,
+            color: AppColors.label3,
+          ),
         ],
       ),
     );

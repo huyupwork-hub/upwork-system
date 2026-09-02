@@ -10,6 +10,7 @@ import 'package:fieldproof/src/ui/home_shell.dart';
 import 'package:fieldproof/src/ui/inspection_detail_screen.dart';
 import 'package:fieldproof/src/ui/inspections_screen.dart';
 import 'package:fieldproof/src/ui/item_editor_sheet.dart';
+import 'package:fieldproof/src/ui/report_preview_screen.dart';
 import 'package:fieldproof/src/ui/reports_screen.dart';
 import 'package:fieldproof/src/ui/settings_screen.dart';
 import 'package:fieldproof/src/ui/theme.dart';
@@ -484,6 +485,29 @@ void main() {
         ),
       ),
       '11-editor-existing',
+    );
+  });
+
+  testWidgets('18 report preview', (tester) async {
+    // The loader fetches the bytes behind every photo, and this harness seeds
+    // photo metadata without seeding an object store to match. Clearing the
+    // metadata keeps the capture about the document's layout rather than about
+    // a fixture gap; the photo strip inside a finding is not covered here.
+    photoMeta.rows.clear();
+    final submitted = Inspection(
+      id: 'insp-1',
+      inspectorId: 'user-1',
+      siteName: 'Harbour View Apartments',
+      siteAddress: '12 Dock Road, Block C',
+      clientName: 'Meridian Property Group',
+      inspectionDate: DateTime(2026, 8, 20),
+      status: InspectionStatus.submitted,
+      submittedAt: DateTime(2026, 8, 21, 9, 14),
+    );
+    await shoot(
+      tester,
+      ReportPreviewScreen(inspection: submitted, reports: reports),
+      '18-report-preview',
     );
   });
 
