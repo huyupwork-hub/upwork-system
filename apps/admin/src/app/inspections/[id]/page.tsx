@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation';
 
+import { AppShell } from '@/components/AppShell';
 import { InspectionDetailView } from '@/components/InspectionDetailView';
-import { requireAdmin } from '@/lib/auth';
+import { currentDisplayName, requireAdmin } from '@/lib/auth';
 import { SupabaseAdminRepository } from '@/lib/data/repository';
 import { createClient } from '@/lib/supabase/server';
 
@@ -24,12 +25,11 @@ export default async function InspectionDetailPage({
   const detail = await repo.getSubmitted(params.id);
   if (!detail) notFound();
 
+  const who = await currentDisplayName();
+
   return (
-    <main className="shell">
-      <a className="back" href="/inspections">
-        ← All submitted inspections
-      </a>
+    <AppShell active="inspections" who={who}>
       <InspectionDetailView detail={detail} />
-    </main>
+    </AppShell>
   );
 }
