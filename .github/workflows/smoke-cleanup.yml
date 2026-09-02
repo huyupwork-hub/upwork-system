@@ -1,0 +1,96 @@
+name: Hosted smoke cleanup
+
+# Removes the fixtures the hosted smoke run created, under a privileged key that
+# no other job in this repository can resolve.
+#
+# WHY THIS IS A SEPARATE WORKFLOW, not a job inside hosted-smoke.yml.
+#
+# It was a job there, gated by `environment: hosted-smoke-cleanup`, and it never
+# ran. Proven by two runs of the same job:
+#
+#   workflow_dispatch on hosted-smoke.yml  -> SUPABASE_SERVICE_ROLE_KEY: ***
+#   pull_request -> ci.yml -> workflow_call -> SUPABASE_SERVICE_ROLE_KEY: (blank)
+#
+# In a *called* workflow the `secrets` context holds only what the caller passed.
+# Environment secrets are not merged in. SUPABASE_URL resolved in both because
+# ci.yml passes it by name; the cleanup key did not, because it is deliberately
+# on no caller's list.
+#
+# The fix could have been to pass the key down from ci.yml. That would put it in
+# scope for the whole called workflow — the smoke job could then reference it —
+# which is the thing this design exists to prevent. So cleanup became its own
+# workflow instead: a `workflow_run` fires a real run of its own, where an
+# environment secret resolves normally, and ci.yml never sees the key at all.
+#
+# WHY IT LISTENS TO "CI" AND NOT ONLY TO THE SMOKE WORKFLOW.
+#
+# A reusable workflow invoked with `workflow_call` produces no workflow run of
+# its own — its jobs belong to the caller's run. Listening only for "Hosted
+# Supabase smoke test" would therefore catch the standalone dispatch and miss
+# every push and pull request, which is the path that actually accumulates rows.
+# Both are named.
+
+on:
+  workflow_run:
+    workflows: ['CI', 'Hosted Supabase smoke test']
+    types: [completed]
+
+permissions:
+  # To read the manifest artifact from the run that triggered this one. Nothing
+  # here writes to the repository.
+  actions: read
+  contents: read
+
+jobs:
+  purge:
+    name: Purge the smoke run's fixtures
+    runs-on: [self-hosted, Linux, X64]
+    # The isolation boundary. SUPABASE_SERVICE_ROLE_KEY is a secret of this
+    # environment and of nowhere else, so it resolves in this job and is empty
+    # everywhere else in the repository. Protection rules on the environment
+    # apply to this job alone.
+    environment: hosted-smoke-cleanup
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+
+      # The manifest belongs to the run that triggered this one, so it is fetched
+      # across the run boundary by id.
+      #
+      # continue-on-error, not failure: a CI run where the smoke job was skipped
+      # — a fork, or HOSTED_SMOKE unset — uploads no manifest at all, and that is
+      # the ordinary case rather than a fault. The purge treats an absent
+      # manifest as "nothing nameable, delete nothing".
+      - name: Fetch the manifest from the triggering run
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: smoke-manifest-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          path: apps/mobile/build
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Deletes explicit ids and explicit storage paths, nothing else. Storage
+      # goes through the Storage API, never SQL — Postgres refuses a direct
+      # delete from storage.objects because it would leave the file behind.
+      #
+      # The token is built from the triggering run, which is what the smoke test
+      # embedded in every fixture name, so a manifest left in a reused workspace
+      # by an earlier run is recognised as stale and refused.
+      #
+      # Without the secret the script warns and exits 0, so a fork or a clone
+      # that has never had one is not permanently red.
+      - name: Purge
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SMOKE_RUN_TOKEN: run${{ github.event.workflow_run.id }}x${{ github.event.workflow_run.run_attempt }}
+          SMOKE_MANIFEST: build/smoke-manifest.json
+        run: dart run tool/smoke_purge.dart
