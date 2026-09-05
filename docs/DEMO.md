@@ -46,7 +46,11 @@ client.
 
 **2. Open one.** Punch items carry severity and open/resolved state; photographs
 render through short-lived signed URLs, because the storage bucket is private and
-has no public path.
+has no public path. Under the facts is **PDF report** — the document the phone
+rendered when the inspection was submitted, downloaded through a 10-minute signed
+URL from a private bucket. The console did not generate it and cannot replace it.
+Where no report has been uploaded yet, the console says exactly that rather than
+showing nothing.
 
 **3. Sign into the console as the *inspector* instead.** You are refused and sent
 to `/no-access`, with nothing rendered. That refusal is two independent layers:
@@ -70,7 +74,10 @@ a retry cannot create a second row.
 
 **8. Submit it.** Submit is only offered *after* the draft has synced —
 submission stamps `submitted_at` server-side and freezes the record, and the app
-will not claim locally something no server has agreed to.
+will not claim locally something no server has agreed to. The phone then renders
+the PDF and uploads it once; reopen the inspection in the console and the report
+is there. If the upload fails the phone says so and offers it again — the
+submission itself is already permanent.
 
 ---
 
@@ -102,6 +109,12 @@ was a git build of `6fc2ee5`; the previous version of this page called that unkn
   this page said auto-deploy was off, which Vercel's own deployment record contradicts.
   Hand deploys are possible but ship the whole checkout, so `DEPLOY.md` §4 sets the
   conditions.
+- **Reports exist only for inspections submitted from `v0.1.0-demo.3` or later.** The
+  three demo inspections get theirs from the demo inspector's phone (`DEPLOY.md` §7) —
+  the same product path, one tap on the Reports tab — and until that tap each reads
+  *No PDF report has been uploaded for this inspection yet* in the console. An
+  inspection submitted from the older build shows the same until its owner taps
+  **Upload** on the Reports tab; nothing uploads by itself.
 
 ## Demo credentials are published on purpose
 
