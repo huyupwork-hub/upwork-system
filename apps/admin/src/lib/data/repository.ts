@@ -1,10 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { reportFilename } from '../report_filename';
 import { toTsQuery } from './search';
 import type {
   FindingSummary,
   InspectionDetail,
   InspectionItem,
+  InspectionReport,
   ItemPhoto,
   Severity,
   SubmittedInspection,
@@ -24,9 +26,38 @@ export interface AdminRepository {
   getSubmitted(id: string): Promise<InspectionDetail | null>;
 }
 
+/** The private bucket holding one stored rendering per submitted inspection
+ * (D21 amended, D31). Read here through signed URLs only, like the photos. */
+export const REPORT_BUCKET = 'inspection-reports';
+
+/**
+ * `{inspector_id}/{inspection_id}/report.pdf` — the one name the bucket's
+ * write policy admits (20260905001100_inspection_reports.sql). Pinned on three
+ * sides: that SQL literal, `reportStoragePath` in the Flutter client
+ * (apps/mobile/lib/src/report/report_store.dart), and here. pgTAP 110 pins the
+ * SQL, report_store_test.dart the phone, repository.test.ts this one, and
+ * hosted smoke 22a proves they meet on a real object.
+ */
+export function reportStoragePath(
+  inspectorId: string,
+  inspectionId: string,
+): string {
+  return `${inspectorId}/${inspectionId}/report.pdf`;
+}
+
+/**
+ * storage-js returns 100 entries unless asked for more. The queue asks for
+ * more than any one inspector plausibly has, and treats a listing that fills
+ * it as one it cannot conclude "none" from.
+ */
+export const REPORT_FOLDER_LIST_LIMIT = 1000;
+
 const INSPECTION_COLUMNS =
-  'id, site_name, site_address, client_name, inspection_date, status, ' +
-  'submitted_at, created_at, profiles!inspections_inspector_id_fkey(full_name), ' +
+  // inspector_id is read for one reason: it names the storage folder the
+  // stored report lives under (D31). The profile join still carries the name.
+  'id, inspector_id, site_name, site_address, client_name, inspection_date, ' +
+  'status, submitted_at, created_at, ' +
+  'profiles!inspections_inspector_id_fkey(full_name), ' +
   // Nested read, the same shape the profiles join already uses. RLS applies to
   // it exactly as it does to a top-level select: the admin item policy scopes
   // to items whose parent is submitted, so this cannot widen what is visible.
@@ -39,6 +70,7 @@ const ITEM_COLUMNS =
 
 interface InspectionRow {
   id: string;
+  inspector_id: string;
   site_name: string;
   site_address: string | null;
   client_name: string | null;
@@ -82,6 +114,7 @@ function summarise(row: InspectionRow): FindingSummary | undefined {
 function toInspection(row: InspectionRow): SubmittedInspection {
   return {
     id: row.id,
+    inspectorId: row.inspector_id,
     siteName: row.site_name,
     siteAddress: row.site_address,
     clientName: row.client_name,
@@ -91,6 +124,27 @@ function toInspection(row: InspectionRow): SubmittedInspection {
     inspectorName: inspectorName(row),
     findings: summarise(row),
   };
+}
+
+/**
+ * One inspector's folder in the reports bucket, as listed: the inspection ids
+ * that hold a report, and whether the listing is known to be all of them.
+ * Null when the folder could not be listed at all.
+ */
+type ReportFolders = { ids: Set<string>; complete: boolean } | null;
+
+/**
+ * True and false are both claims the queue prints, so each needs the listing
+ * behind it: "PDF" needs the folder in it, "Not yet" needs a complete listing
+ * without it. Anything less is a dash (the FindingSummary rule, D28).
+ */
+function hasReport(
+  folders: ReportFolders | undefined,
+  id: string,
+): boolean | undefined {
+  if (!folders) return undefined;
+  if (folders.ids.has(id)) return true;
+  return folders.complete ? false : undefined;
 }
 
 export class SupabaseAdminRepository implements AdminRepository {
@@ -124,7 +178,53 @@ export class SupabaseAdminRepository implements AdminRepository {
       .order('id', { ascending: false });
 
     if (error) throw new Error(error.message);
-    return (data as unknown as InspectionRow[]).map(toInspection);
+
+    const rows = data as unknown as InspectionRow[];
+    const folders = await this.listReportFolders(rows);
+    return rows.map((row) => ({
+      ...toInspection(row),
+      hasReport: hasReport(folders.get(row.inspector_id), row.id),
+    }));
+  }
+
+  /**
+   * One listing per distinct inspector, not one per row: a folder under
+   * `{inspector_id}/` in the reports bucket is a fact derived from the object
+   * beneath it, and the only object a client can write there is report.pdf
+   * (report_store.dart makes the same argument for the phone's own folder).
+   * Read through the admin storage SELECT policy, so a draft's folder is not
+   * in the listing at all (pgTAP 110 plants one to prove it).
+   *
+   * A listing that errors or throws leaves every one of that inspector's rows
+   * undecided rather than "Not yet": a transient storage failure must not read
+   * as a fact about the inspection.
+   */
+  private async listReportFolders(
+    rows: InspectionRow[],
+  ): Promise<Map<string, ReportFolders>> {
+    const folders = new Map<string, ReportFolders>();
+    const uids = [...new Set(rows.map((row) => row.inspector_id))];
+    await Promise.all(
+      uids.map(async (uid) => {
+        try {
+          const { data, error } = await this.client.storage
+            .from(REPORT_BUCKET)
+            .list(uid, { limit: REPORT_FOLDER_LIST_LIMIT });
+          folders.set(
+            uid,
+            error
+              ? null
+              : {
+                  ids: new Set(data.map((entry) => entry.name)),
+                  complete: data.length < REPORT_FOLDER_LIST_LIMIT,
+                },
+          );
+        } catch {
+          folders.set(uid, null);
+        }
+      }),
+    );
+    return folders;
   }
 
   async getSubmitted(id: string): Promise<InspectionDetail | null> {
@@ -188,6 +288,38 @@ export class SupabaseAdminRepository implements AdminRepository {
       });
     }
 
-    return { inspection, items, photos };
+    // A listing, not a blind sign: "not stored" and "could not be loaded" are
+    // different facts, and the reviewer is told which one (the photo rule
+    // applied to the document). A folder that cannot be listed is neither, so
+    // the read fails the way the item and photo reads above fail rather than
+    // claiming absence.
+    const folder = `${inspection.inspectorId}/${inspection.id}`;
+    const { data: entries, error: reportError } = await this.client.storage
+      .from(REPORT_BUCKET)
+      .list(folder);
+    if (reportError) throw new Error(reportError.message);
+
+    const present = entries.some((entry) => entry.name === 'report.pdf');
+    const filename = reportFilename(inspection);
+    let url: string | null = null;
+    if (present) {
+      // Ten minutes, minted per request against the reviewer's session: the
+      // admin storage SELECT policy decides whether it is issued at all (D19,
+      // D23). `download` makes Storage answer with Content-Disposition:
+      // attachment, so the browser saves the file under the product's name —
+      // the same name the phone's share sheet offers — instead of rendering an
+      // inspector's document inline on the storage origin.
+      const { data: signed } = await this.client.storage
+        .from(REPORT_BUCKET)
+        .createSignedUrl(
+          reportStoragePath(inspection.inspectorId, inspection.id),
+          60 * 10,
+          { download: filename },
+        );
+      url = signed?.signedUrl ?? null;
+    }
+    const report: InspectionReport = { present, url, filename };
+
+    return { inspection, items, photos, report };
   }
 }

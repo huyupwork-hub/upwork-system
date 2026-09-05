@@ -12,6 +12,7 @@ import type { InspectionDetail, SubmittedInspection } from '@/lib/data/types';
  */
 const base: SubmittedInspection = {
   id: 'a1',
+  inspectorId: 'u',
   siteName: 'Northgate Retail Park',
   siteAddress: '4 Northgate Way, Leeds',
   clientName: 'Cavendish Estates',
@@ -113,6 +114,11 @@ describe('dependency notes', () => {
       },
     ],
     photos: [],
+    report: {
+      present: false,
+      url: null,
+      filename: 'fieldproof-northgate-retail-park-20260820-a1.pdf',
+    },
   };
 
   it('states the missing capability without implying a failure', () => {
@@ -120,6 +126,9 @@ describe('dependency notes', () => {
 
     expect(out).toContain('Requires an email delivery provider');
     expect(out).toContain('Requires a work-order integration');
+    // The absent-report copy is on the page too, so the no-failure-words rule
+    // below is being applied to it as well, not only to the dependency notes.
+    expect(out).toContain('report-absent');
     expect(out).not.toMatch(/error|failed|unavailable/i);
 
     // The previous version of this assertion matched on the prefix

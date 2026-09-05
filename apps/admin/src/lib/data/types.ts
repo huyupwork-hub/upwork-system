@@ -26,6 +26,10 @@ export interface FindingSummary {
 
 export interface SubmittedInspection {
   id: string;
+  /** The inspector's auth uid: the first segment of every storage name the
+   * inspection owns, which is how the console finds its stored report (D31).
+   * Never shown — the profile join carries the name. */
+  inspectorId: string;
   siteName: string;
   siteAddress: string | null;
   clientName: string | null;
@@ -35,6 +39,11 @@ export interface SubmittedInspection {
   inspectorName: string | null;
   /** Derived, not stored. See FindingSummary. */
   findings?: FindingSummary;
+  /** Whether an object exists at the report's pinned name. Optional for the
+   * FindingSummary reason: undefined means the folder was not, or could not
+   * be, listed, and the queue shows a dash rather than "Not yet", which would
+   * be a claim. */
+  hasReport?: boolean;
 }
 
 export interface InspectionItem {
@@ -55,8 +64,22 @@ export interface ItemPhoto {
   url: string | null;
 }
 
+/** The PDF the inspector's device rendered at submission (D21 amended, D31). */
+export interface InspectionReport {
+  /** An object exists at the pinned name in the private inspection-reports
+   * bucket. */
+  present: boolean;
+  /** Ten-minute signed URL; null when absent or when signing failed. The
+   * bucket stays private (D19). */
+  url: string | null;
+  /** The name the browser saves under; identical to the phone's share-sheet
+   * name (report_filename.ts). */
+  filename: string;
+}
+
 export interface InspectionDetail {
   inspection: SubmittedInspection;
   items: InspectionItem[];
   photos: ItemPhoto[];
+  report: InspectionReport;
 }

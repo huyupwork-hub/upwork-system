@@ -12,11 +12,13 @@ import { ItemStatusBadge, SeverityBadge, SubmittedPill } from './Badges';
  * single innocuous "Resolve" control added later would contradict D3 while the
  * database silently refused every click.
  *
- * It is report-oriented rather than a second PDF engine (D21). The Flutter
- * client remains the only thing that generates a document.
+ * It is report-oriented rather than a second PDF engine (D21, D23); the
+ * document it links to was rendered on the inspector's device and stored once
+ * at submission (D31). The Flutter client remains the only thing that
+ * generates a document; the console hands out a signed URL to that one.
  */
 export function InspectionDetailView({ detail }: { detail: InspectionDetail }) {
-  const { inspection, items, photos } = detail;
+  const { inspection, items, photos, report } = detail;
   const photosFor = (itemId: string) => photos.filter((p) => p.itemId === itemId);
 
   const open = items.filter((i) => i.status === 'open').length;
@@ -51,6 +53,51 @@ export function InspectionDetailView({ detail }: { detail: InspectionDetail }) {
           <dd>{formatTimestamp(inspection.submittedAt)}</dd>
         </div>
       </dl>
+
+      {/* Three states, never a blank: a link when the stored PDF signed, a
+          statement when an object exists but could not be signed, and a
+          statement when nothing was uploaded. "Not uploaded" and "could not be
+          loaded" are different facts and the reviewer is told which (the photo
+          rule applied to the document, D28). The link is a ten-minute bearer
+          minted on the reviewer's session; `download` makes Storage send the
+          file under the product's name, the one the phone's share sheet
+          offers, instead of rendering an inspector's document inline on the
+          storage origin. */}
+      <section className="report" data-testid="report">
+        <h2>PDF report</h2>
+        {report.url ? (
+          <p>
+            <a
+              className="report-link"
+              href={report.url}
+              download={report.filename}
+              rel="noopener noreferrer"
+              data-testid="report-link"
+            >
+              Download the PDF report
+            </a>
+            <span className="muted">
+              {' '}
+              — rendered on the inspector’s device when the inspection was
+              submitted. The record above is authoritative; the link is valid
+              for 10 minutes.
+            </span>
+          </p>
+        ) : report.present ? (
+          // "unloadable", not "unavailable": density.test.tsx forbids
+          // /error|failed|unavailable/ over this view, and a test id must not
+          // be able to trip it.
+          <p className="report-missing" data-testid="report-unloadable">
+            The PDF report exists but could not be loaded.
+          </p>
+        ) : (
+          <p className="empty" data-testid="report-absent">
+            No PDF report has been uploaded for this inspection yet. It is
+            rendered on the inspector’s device and uploaded when the inspection
+            is submitted.
+          </p>
+        )}
+      </section>
 
       <section className="items">
         <h2>
@@ -116,7 +163,8 @@ export function InspectionDetailView({ detail }: { detail: InspectionDetail }) {
 
       {/* The two things this view visibly implies but cannot do. The reviewer
           console is read-only by design (D3) and generates no document of its
-          own (D21) — saying so is more useful than a disabled button. */}
+          own — the PDF above was rendered on the phone and stored once (D21,
+          D31) — saying so is more useful than a disabled button. */}
       <DependencyNote
         title="Issue this report to the client"
         requirement="Requires an email delivery provider"
