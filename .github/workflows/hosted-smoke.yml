@@ -90,58 +90,17 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-  # A separate job, so the privileged key lives behind an environment boundary
-  # and is never present in the process that runs the assertions.
+  # Cleanup is NOT a job here. It lives in .github/workflows/smoke-cleanup.yml,
+  # triggered by workflow_run once this workflow — or the CI run that called it —
+  # finishes.
   #
-  # `submit` is one-way (D10) and the delete policy requires a draft (D17), so
-  # the inspection case 22 submits on purpose cannot be removed by the anon key
-  # that created it — PostgREST reported that zero-row delete as success, and a
-  # `SMOKE ... do-not-keep` row accumulated on every run. No policy changes to
-  # fix it. This job holds a key the smoke job does not, and deletes exactly the
-  # ids and paths that run recorded.
-  cleanup:
-    name: Purge this run's fixtures
-    needs: smoke
-    # Runs whatever the smoke job did, which is the point.
-    if: always()
-    runs-on: [self-hosted, Linux, X64]
-    # The isolation boundary. SUPABASE_SERVICE_ROLE_KEY is stored as a secret of
-    # this environment and nowhere else, so it resolves here and is empty
-    # everywhere else in the repository — including in this workflow's own smoke
-    # job above. Protection rules on the environment apply to this job alone.
-    environment: hosted-smoke-cleanup
-    defaults:
-      run:
-        working-directory: apps/mobile
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - run: flutter pub get
-
-      # continue-on-error, not failure: a smoke job that died before writing a
-      # manifest has nothing to hand over, and the purge treats an absent
-      # manifest as "nothing nameable, delete nothing". The smoke job's own
-      # case 38 is what fails when a fixture goes unrecorded.
-      - name: Fetch the run manifest
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: smoke-manifest-${{ github.run_id }}-${{ github.run_attempt }}
-          path: apps/mobile/build
-
-      # Deletes explicit ids and explicit storage paths, nothing else. Storage
-      # goes through the Storage API, never SQL — Postgres refuses a direct
-      # delete from storage.objects because it would leave the file behind.
-      #
-      # Without the secret the script warns and exits 0, so a fork, a clone, or
-      # an unconfigured environment is not permanently red.
-      - name: Purge
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SMOKE_RUN_TOKEN: run${{ github.run_id }}x${{ github.run_attempt }}
-          SMOKE_MANIFEST: build/smoke-manifest.json
-        run: dart run tool/smoke_purge.dart
+  # It was a job in this file, gated by an environment. It never ran. In a
+  # workflow invoked with `workflow_call` the `secrets` context holds only what
+  # the caller passed, and environment secrets are not merged in, so the
+  # privileged key resolved to an empty string on every push and pull request
+  # while resolving correctly on a manual dispatch. Passing the key down from
+  # ci.yml would have fixed that by putting it in scope for this whole workflow,
+  # including the smoke job above — which is the thing the separation exists to
+  # prevent.
+  #
+  # The manifest uploaded above is how the two runs are joined.
