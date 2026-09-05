@@ -239,6 +239,15 @@ names the key (the design PR #5 arrived at on 2026-09-02, cherry-picked); and
 D17 and the channel leave for a submitted row. The key itself was replaced in the
 environment on 2026-09-05 02:47Z.
 
+**Closed the same day.** After PR #7 the new workflow's first run (`33945154489`) deleted
+its run's rows and then exited 1 on the one storage path in the manifest: Storage reports
+an already-removed object as HTTP 400 with `code: NoSuchKey`, which the tool only knew as
+HTTP 404. PR #8 taught it both spellings. The next run, `33948142211` (for CI `33946760165`
+on `1353bdb`), ended *removed 2 row(s) and 0 object(s); nothing named remains*, exit 0.
+Since then every push leaves nothing behind. One row predates the workflow —
+`62e48279`, from the rerun of PR #7's own CI, for which no `workflow_run` ever fired — and
+`20260905001000_remove_last_smoke_residue` removes it the same way as `000900`.
+
 ---
 
 ## 6. What is mocked, limited, or unverified
