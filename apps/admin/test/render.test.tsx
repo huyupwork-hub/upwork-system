@@ -16,6 +16,7 @@ import type {
 
 const submitted: SubmittedInspection = {
   id: 'a2',
+  inspectorId: 'u',
   siteName: 'Northgate Retail Park',
   siteAddress: '4 Northgate Way, Leeds',
   clientName: 'Cavendish Estates',
@@ -55,6 +56,11 @@ const detail: InspectionDetail = {
       url: 'https://example.test/signed/p1.jpg?token=abc',
     },
   ],
+  report: {
+    present: true,
+    url: 'https://example.test/signed/u/a2/report.pdf?token=def',
+    filename: 'fieldproof-northgate-retail-park-20260822-a2.pdf',
+  },
 };
 
 describe('submitted inspections list', () => {
@@ -96,6 +102,32 @@ describe('submitted inspections list', () => {
     );
     expect(html.split('data-testid="inspection-row"').length - 1).toBe(2);
   });
+
+  it('says PDF, Not yet, or nothing at all about the report', () => {
+    // One row per table so the words can be attributed to the row: 'PDF' and
+    // 'Not yet' appear nowhere else in the queue, and the dash is shared with
+    // the not-fetched findings cell, which is the same rule (D28).
+    const row = (hasReport?: boolean) =>
+      renderToStaticMarkup(
+        <InspectionsTable inspections={[{ ...submitted, hasReport }]} query="" />,
+      );
+
+    expect(row(true)).toContain('PDF');
+    expect(row(true)).not.toContain('Not yet');
+
+    expect(row(false)).toContain('Not yet');
+    expect(row(false)).not.toContain('PDF');
+
+    // Not listed, or could not be listed: neither claim, a dash. Counted,
+    // not searched for: the fixture's unfetched findings already put dashes
+    // in every row, so "contains a dash" would pass with an empty cell. The
+    // undecided row carries exactly one more, the Report cell's own.
+    const dashes = (html: string) => (html.match(/—/g) ?? []).length;
+    expect(row(undefined)).not.toContain('PDF');
+    expect(row(undefined)).not.toContain('Not yet');
+    expect(dashes(row(undefined))).toBe(dashes(row(true)) + 1);
+    expect(dashes(row(undefined))).toBe(dashes(row(false)) + 1);
+  });
 });
 
 describe('inspection detail is read-only', () => {
@@ -136,6 +168,48 @@ describe('inspection detail is read-only', () => {
       />,
     );
     expect(withBroken).toContain('could not be loaded');
+  });
+
+  it('links the stored report by its signed URL under the product filename', () => {
+    // Both attributes read from the one element, not from anywhere in the
+    // page: an href on some other anchor would not prove the report link.
+    const link = html.match(/<a[^>]*data-testid="report-link"[^>]*>/)?.[0] ?? '';
+    expect(link).toContain(
+      'href="https://example.test/signed/u/a2/report.pdf?token=def"',
+    );
+    expect(link).toContain(
+      'download="fieldproof-northgate-retail-park-20260822-a2.pdf"',
+    );
+    expect(html).toContain('Download the PDF report');
+    expect(html).not.toContain('report-absent');
+    expect(html).not.toContain('report-unloadable');
+  });
+
+  it('states an absent report as not uploaded, without a link', () => {
+    const absent = renderToStaticMarkup(
+      <InspectionDetailView
+        detail={{ ...detail, report: { ...detail.report, present: false, url: null } }}
+      />,
+    );
+    expect(absent).toContain('data-testid="report-absent"');
+    expect(absent).toContain('No PDF report has been uploaded for this inspection yet.');
+    expect(absent).not.toContain('report-link');
+    expect(absent).not.toContain('report-unloadable');
+  });
+
+  it('states an unloadable report instead of calling it absent', () => {
+    // An object exists but did not sign. "Not uploaded" would be a claim the
+    // listing already disproved (D28); the reviewer is told which fact holds.
+    const unloadable = renderToStaticMarkup(
+      <InspectionDetailView
+        detail={{ ...detail, report: { ...detail.report, present: true, url: null } }}
+      />,
+    );
+    expect(unloadable).toContain('data-testid="report-unloadable"');
+    expect(unloadable).toContain('The PDF report exists but could not be loaded.');
+    expect(unloadable).not.toContain('report-link');
+    expect(unloadable).not.toContain('report-absent');
+    expect(unloadable).not.toContain('has been uploaded');
   });
 
   it('contains no control that could mutate anything', () => {

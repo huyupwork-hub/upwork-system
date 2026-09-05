@@ -79,6 +79,10 @@ Future<void> main() async {
         loader: ReportLoader(items: items, photos: photos, profiles: profiles),
         renderer: const PdfReportRenderer(),
         sharer: const PrintingReportSharer(),
+        // Same client, same session as the photo uploads: the storage policy
+        // decides, and the owner segment of the path is the live uid.
+        store: SupabaseReportStore(client),
+        currentUserId: () => client.auth.currentUser!.id,
       ),
       offline: offlineStatus,
       onSync: sync.run,

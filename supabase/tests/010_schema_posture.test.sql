@@ -100,6 +100,8 @@ select is(
 -- private bucket
 select is((select public from storage.buckets where id = 'inspection-photos'), false,
   'inspection-photos bucket is private');
+select is((select public from storage.buckets where id = 'inspection-reports'), false,
+  'inspection-reports bucket is private');
 
 select * from finish();
 rollback;

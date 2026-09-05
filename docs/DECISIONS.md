@@ -212,6 +212,17 @@ back into `ci.yml`. Note that making the repository public while a self-hosted r
 attached would let fork pull requests execute code on that machine; move `runs-on` back
 to GitHub-hosted in the same change.
 
+**Amendment 2026-09-05 — public repository, runner kept.** The repository was made public
+and CI stayed on the self-hosted T410s, against the sentence above. The owner reviewed the
+options the same day (move every job to `ubuntu-latest`, or keep the box) and chose to keep
+it: the box carries the D16 caches and the AVX-less Realtime workaround (D11), and the
+project takes no outside contributions. The control in place instead is the repository
+setting *fork pull request workflows require approval for all external contributors*
+(`fork-pr-contributor-approval = all_external_contributors`, read back 2026-09-05), so no
+fork's workflow reaches the runner without the owner's click. **What this does not cover:**
+a fork PR the owner approves without reading, and any collaborator with write access —
+there are none. Reversal is the paragraph above.
+
 ### D16 — CI caches live on the runner's disk, not in `actions/cache` — *Accepted*
 No `actions/cache` steps. `~/.gradle` (→ `/data/gradle`), `~/.pub-cache`, `~/android-sdk`
 and `actions-runner/_work/_tool` (→ `/data/runner-work`) persist between runs;
@@ -248,6 +259,12 @@ RLS refuses first — a denied update matches zero rows rather than raising. The
 as defence in depth and to stamp `submitted_at`. Test `050` was rewritten accordingly: it
 now asserts the un-submit is denied *silently* and verifies the data, rather than expecting
 the trigger's exception.
+
+**Amended by D31 (2026-09-05):** the four tables and `inspection-photos` are as stated. A
+second bucket, `inspection-reports`, accepts exactly one write per *submitted* inspection —
+the report object — and no update or delete from any client role. A derived artefact of the
+frozen record, not a change to it; `110` proves it cannot be replaced or removed, and
+`070`/`080` are unchanged.
 
 ### D18 — Post-submit changes will create a new revision, not mutate the submitted one — *Accepted (deferred)*
 The intended future mechanism is `submitted revision → Create Revision → new draft
@@ -303,6 +320,13 @@ narrow interfaces so `photo_workflow_test.dart` can force "the metadata insert f
 observe the compensation. A test that cannot force that proves nothing about the ordering.
 They are not an abstraction layer: one production implementation each, one fake each.
 
+**Amended by D31 (2026-09-05):** applies to `inspection-reports` too, more strongly:
+private, signed URLs only, and no client delete path at all, so a report object outlives
+everything but a service-role or dashboard action. The reclaim pass this decision
+anticipates must enumerate that bucket as well, and a migration that deletes a submitted
+inspection (`000800`–`001000` did) must remove its report object through the Storage API
+(`smoke_purge.dart --report`).
+
 ### D20 — `image_picker`, behind a `PhotoSource` seam — *Accepted*
 Camera and gallery only, via `image_picker`. `ImagePickerPhotoSource` is the single file
 that imports it; everything above talks to the `PhotoSource` interface.
@@ -319,7 +343,7 @@ re-encodes when `imageQuality` is set, so its reported mime type is advisory at 
 `imageQuality` 85, so a 12 MP phone photo does not arrive at 8 MB and get rejected after the
 user has waited for it.
 
-### D21 — The PDF is a projection, not a stored artefact — *Accepted*
+### D21 — The PDF is a projection, not a stored artefact — *Accepted; amended 2026-09-05 (D31)*
 `DB state → ReportSnapshot → PDF bytes`. Nothing about a report is persisted: no
 report table, no generated-PDF upload, no editable report content. Regenerating always
 reproduces the current submitted record.
@@ -348,6 +372,49 @@ out — so `report_renderer_test.dart` asserts on real PDF output; the sharer ke
 `printing`'s platform channel out of every widget test.
 **Deliberately absent:** charts, AI summary, signatures, template engine, server-side
 generation, email, PDF history/versioning, revision selection.
+
+**Amendment 2026-09-05 — one rendering is kept, write-once, after submission (D31).**
+Owner-signed acceptance criterion 2 requires the published read-only demo admin to see the
+PDF of each submitted inspection, and the console has no renderer and may gain no privilege
+(D6, D23). So the bytes the device renders are uploaded once, on the submit success path,
+to a second private bucket, `inspection-reports/{inspector_id}/{inspection_id}/report.pdf`,
+under the inspector's own session (`20260905001100_inspection_reports.sql`), and the console
+hands out a ten-minute signed URL for that object through the reviewer's own session and a
+storage SELECT policy. Everything above this paragraph stands: the report is still
+`DB state → ReportSnapshot → PDF bytes`, the loader still reads once, a draft is still
+ineligible, generation still never submits, an unfetchable photo still aborts, and the
+renderer still never reaches the network. What changed is one clause — "no generated-PDF
+upload". "No report table" is still true: the object's existence at the policy-pinned name
+is the fact, and `storage.objects` is the index.
+**Why the staleness objection no longer applies.** "Why no upload to Storage" above assumed
+the record could change under a stored copy. Under D17 it cannot, and the INSERT policy
+admits an object only while the inspection is `submitted`, so a stored report can never
+describe a record that later moved: it is one rendering of the only source of truth, frozen
+at the same moment. The database stays authoritative; regeneration on the device stays
+available and is unchanged.
+**What is stored is one rendering, not a canonical byte string.** The footer carries
+`generatedAt`, so a later on-device rendering is content-equivalent but not byte-identical.
+The invariant is content, not bytes; nothing asserts byte equality anywhere.
+**Write-once, in the database.** Exactly one name per inspection is writable, only by the
+owner, only while submitted; no UPDATE and no DELETE policy exists for the bucket for any
+client role; the unique `(bucket_id, name)` on `storage.objects` makes a second write a
+refusal, not a replacement. `110` proves each clause; hosted smoke 22a–22e prove them
+through the Storage API and the app's own `ReportService.publish`. What the database proves
+is provenance — the owner's session, after submission, a PDF by header, under the cap — not
+that the document matches the record, because D6 renders on a device the server does not
+trust. The console shows the record beside the document and names the record as
+authoritative.
+**Upload failure is not submit failure.** Submission is already permanent when the upload
+starts. A failed upload leaves the record submitted and the report absent, says so on the
+detail screen and the Reports tab, and offers the upload again; the console says "not
+uploaded yet" rather than nothing (D28). Nothing is queued and nothing runs unasked (D24,
+D25). The same affordance is how an inspection submitted before this amendment gets its
+report (DEPLOY §7).
+**Ports:** `ReportRenderer`, `ReportSharer`, and now `ReportStore` — one production
+implementation, one fake — so `report_publish_flow_test.dart` can force "the upload failed
+after the submit succeeded" and observe that nothing was un-submitted.
+**Deliberately absent, in addition to the list above:** a report table, an automatic upload
+sweep, byte-equality assertions, a server-side hash, a Next proxy for the object.
 
 ### D22 — Search is server-side over the existing tsvector; ordering is a total order — *Accepted*
 `searchMine(query)` matches in Postgres against the stored `search_tsv` generated column
@@ -406,6 +473,12 @@ querying one column must not disagree about what a word matches.
 **No second PDF engine** (D21). The console presents submitted data in a report-oriented
 view; the Flutter client remains the only thing that generates a document, and nothing is
 persisted.
+
+**Amended by D31 (2026-09-05):** the console now hands out a signed URL for the stored
+report through the reviewer's own session and the storage SELECT policy, and lists the
+object's folder first so "not uploaded" and "could not be loaded" are stated as two
+different facts. Still no write method, no PDF engine, no privileged client; the render
+test still forbids any control, and a link is a read.
 
 ### D24 — Offline lives at the repository boundary, as two decorators — *Accepted*
 `OfflineFirstInspectionsRepository` and `OfflineFirstInspectionItemsRepository`
@@ -582,3 +655,74 @@ before it.
 
 **It does not replace on-device QA and is not offered as one.** Touch targets, keyboard
 insets, scroll physics, platform fonts and real photo bytes stay unverified for this pass.
+
+### D31 — One rendering of the report is stored, write-once, at submission — *Accepted*
+The PDF the device renders after a successful submit is uploaded once, under the
+inspector's own session, to a second private bucket, `inspection-reports`, at the
+policy-pinned name `{inspector_id}/{inspection_id}/report.pdf`. The console mints a
+ten-minute signed URL for it with the reviewer's own session. No table, no new column, no
+change to any existing policy, migration or trigger; `010` gains one bucket-posture line
+and `070`/`080` are untouched (`20260905001100_inspection_reports.sql`; proven by
+`110_inspection_reports.test.sql`).
+**Why:** owner-signed acceptance criterion 2 — the published read-only demo admin sees the
+PDF of each submitted inspection — and the owner's choice of option 1. D6 (rendered on the
+device) and D23 (the console adds no privilege) leave exactly this shape: bytes only a
+device can make, served through a policy the console cannot widen. D21 is amended, not
+replaced; its original reasoning stands beside the amendment.
+**Why a second bucket, and not `report.pdf` beside the photographs:** `inspection-photos`
+allows images only, its write policies are draft-only (D17) and must stay so, and `080`
+asserts exactly one owner-and-draft DELETE policy on storage. A PDF admitted there would be
+a filename-parsed exception to all three.
+**Why the whole name is pinned in the INSERT policy, not a prefix:** exactly one name per
+inspection is writable at all, so "one report per inspection" is a uniqueness fact —
+`storage.objects (bucket_id, name)` is unique, and a second write is a `23505` from SQL or
+a `Duplicate` from the Storage API — rather than a convention the client is trusted to keep.
+**Why no UPDATE and no DELETE policy, for any client role:** write-once by absence, the
+same mechanism D4 uses for `profiles.role`. The Storage API's `x-upsert` path needs an
+UPDATE policy and is refused; `remove()` matches zero rows and returns `[]`. `110` asserts
+the count of such policies is zero rather than shape-testing a policy that
+`storage.protect_delete()` keeps pgTAP from exercising.
+**Why no `and not public.is_admin()` on the write policy:** an admin owns no inspection
+(`inspections_insert_own` refuses one), so the subquery is empty for an admin and the
+conjunct would be dead; and `080` asserts, literally, that no non-SELECT storage policy
+mentions `is_admin` — the same trap `010` records for `public`. The one reachable case, an
+inspector promoted to admin after submitting work, could publish the report of their own
+old inspection and nothing else.
+**Why no table:** a row could say nothing the name does not. The object's existence at the
+pinned path is the fact, `storage.objects` is the index, and a row would reintroduce the
+"no report table" clause of D21 for a second copy of one bit. What a row could have carried
+— a hash, a build id — is provenance the database cannot verify anyway (below).
+**What the database proves, and what it cannot:** that a PDF (by header) under the cap was
+written by the owner's session after submission and never changed. Not that its contents
+match the record: D6 renders on a device the server does not trust. The console therefore
+shows the record beside the document and names the record as authoritative; server-side
+rendering under a service role is the only closure and is not built.
+**Upload failure is not submit failure.** Submission is permanent before the first byte is
+rendered (D10, D17). A failed upload leaves the record submitted and the report absent,
+says so on the detail screen and on the Reports tab, and offers the upload again; the
+console says "not uploaded yet" rather than nothing (D28). Nothing is queued and nothing
+runs unasked: the snapshot needs the server (D24) and an upload re-downloads every
+photograph, so it is the inspector's act, not the screen's. The Reports tab shows which
+submitted inspections still lack a report and offers "Upload N missing reports" — the
+bounded catch-up that stops at the first transport failure (D25) — behind a tap. That
+action is also how the three inspections submitted before this decision got theirs
+(DEPLOY §7).
+**A stalled upload is a failure, not a wait.** `supabase_flutter`'s HTTP client has no
+timeout; the store applies 120 s, and a `TimeoutException` is already a transport failure
+to `isTransportFailure`.
+**"Could not check" is not "not uploaded."** The phone reads the report's state from the
+bucket, never from a local flag (D27); when that read fails it shows the unknown state
+with a retry rather than a claim, which is D28 applied to the inspector's screen.
+**The one API-level caveat:** the Storage API checks for an existing object and then
+writes the final `storage.objects` row as a privileged user, so two devices racing on the
+same pinned name could both land bytes. Same owner, content-equivalent renderings, and
+still one object under the name — harmless, but "exactly one upload ever landed" is not
+what is claimed; "exactly one object, never replaced by a client" is.
+**Consequences elsewhere:** D17 admits one insert-only addition under a *submitted*
+inspection; D19's orphan paragraph applies to the second bucket, which has no client
+delete path at all; D23 gains one signed-URL read on the reviewer's session and still no
+write method, no PDF engine and no privileged client.
+**What this is not:** not a report table, not server-side rendering, not a sync queue,
+not an audit trail, not a hash the console verifies, not revisioning (D18), not an
+automatic sweep on app open, and not a change to what the share sheet does —
+`generateAndShare` is untouched and never touches the bucket.

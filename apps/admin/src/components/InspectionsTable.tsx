@@ -46,6 +46,7 @@ export function InspectionsTable({
           <th scope="col">Severity</th>
           <th scope="col">Submitted</th>
           <th scope="col">Status</th>
+          <th scope="col">Report</th>
         </tr>
       </thead>
       <tbody>
@@ -71,6 +72,9 @@ export function InspectionsTable({
             <td className="nowrap">{formatTimestamp(row.submittedAt)}</td>
             <td>
               <SubmittedPill />
+            </td>
+            <td className="nowrap">
+              <ReportCell hasReport={row.hasReport} />
             </td>
           </tr>
         ))}
@@ -124,6 +128,21 @@ function SeverityCounts({ findings }: { findings?: FindingSummary }) {
       ))}
     </span>
   );
+}
+
+/**
+ * "PDF", "Not yet", or a dash when the reports folder was not or could not be
+ * listed.
+ *
+ * The dash is the FindingSummary rule applied to the document: "Not yet" is a
+ * claim that nothing was uploaded, and the console may only make it after it
+ * looked (D28). A folder listing that errored, or that filled its page, says
+ * nothing either way, so neither does the cell.
+ */
+function ReportCell({ hasReport }: { hasReport?: boolean }) {
+  if (hasReport === undefined) return <span className="muted">—</span>;
+  if (!hasReport) return <span className="muted">Not yet</span>;
+  return <span>PDF</span>;
 }
 
 const SEVERITY_LABEL: Record<Severity, string> = {

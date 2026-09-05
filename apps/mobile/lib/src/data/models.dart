@@ -450,6 +450,18 @@ class PhotoLimits {
       '$inspectorId/$inspectionId/$itemId/$photoId.$extension';
 }
 
+/// Mirrors the `inspection-reports` bucket's own limit.
+class ReportLimits {
+  const ReportLimits._();
+
+  /// The bucket's `file_size_limit` in
+  /// supabase/migrations/20260905001100_inspection_reports.sql;
+  /// `test/constraint_parity_test.dart` reads the number from that file. The
+  /// app refuses a larger rendering before uploading (ReportTooLargeException)
+  /// rather than letting the bucket answer 413 after the bytes were sent.
+  static const int maxBytes = 52428800; // 50 MB
+}
+
 // ---------------------------------------------------------------- search
 
 /// Turns what someone typed into a Postgres `tsquery`.

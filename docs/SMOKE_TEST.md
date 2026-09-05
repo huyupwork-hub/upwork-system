@@ -1,6 +1,7 @@
 # Hosted Supabase smoke test
 
-Proves the Auth → Create Inspection slice against a **real hosted Supabase project**.
+Proves the Auth → Create Inspection slice — and, since D31, the stored report — against
+a **real hosted Supabase project**.
 
 Everything under `apps/mobile/test/` runs against in-memory fakes and touches no
 network. Those tests prove the client contract — the right payload is sent, errors
@@ -27,7 +28,13 @@ rather than failing.
 | 6 | User B cannot read it — by list, and by direct id |
 | 7 | User B cannot update or delete it — asserted against the data afterwards, because RLS denies these *silently* by matching zero rows |
 | 8 | User B cannot insert a row owned by A (raises) |
-| … | Items, photos, storage, submission immutability, history and search — cases 9–29, listed in the test file |
+| … | Items, photos, storage, submission immutability — cases 9–22, listed in the test file |
+| 22a | User A publishes the submitted inspection's report through `ReportService` — the real `ReportLoader`, `PdfReportRenderer` and `SupabaseReportStore`, A's session — at exactly `{uid}/{inspection_id}/report.pdf`; `published()` lists the id (the listing reflects the object); a signed URL serves 200 `application/pdf` beginning `%PDF-`; the unsigned URL does not serve |
+| 22b | Write-once through the Storage API, as the owner: a second upload at the pinned name is refused as `Duplicate` (`statusCode 409`), the shape `SupabaseReportStore.put` reads as "already there"; `upsert: true` is refused (no UPDATE policy); `remove()` completes with `[]` and the object is still listed (no DELETE policy); a re-download is byte-identical to 22a; `SupabaseReportStore.put` at the same name completes without replacing it |
+| 22c | User B cannot list A's inspection folder or A's folder of inspections, cannot sign the report, and cannot upload at the pinned name or at a sibling name beside it; A's folder still holds only `report.pdf` |
+| 22d | A draft cannot have a stored report: the raw upload under a draft is refused at the server, `publish(draft)` raises `InspectionNotSubmittedException` without submitting, and the draft is deleted |
+| 22e | `publishMissing` over the already-published inspection uploads nothing — the backfill vehicle run twice — and the folder still holds exactly one object |
+| … | Deletion under submission, history and search — cases 23–29, listed in the test file |
 | 30 | An offline-origin draft syncs to hosted Supabase through the production `DraftSync` and `SupabaseDraftSink` |
 | 31 | It arrives as **exactly one** draft, owned by A per RLS, with its fields intact and `submitted_at` null |
 | 32 | Both punch items are attached to it, in order, carrying `severity` and `status` — including a `resolved` item, which an ordinary insert would have defaulted to `open` |
@@ -36,8 +43,17 @@ rather than failing.
 | 35 | User B cannot see it, and B's own queue holding A's id is **refused by RLS** rather than overwriting A's row — B keeps its local copy instead of losing it |
 | 36 | After sync it is an ordinary editable draft: the online item-update path works on it |
 | 37 | The offline fixture is deleted |
+| 38 | The only residue is the submitted inspection, its one item and its one report object — the three the purge removes — and the report's folder holds nothing but `report.pdf` |
 
 The row is deleted in `tearDownAll`, which also re-proves the owner delete policy.
+
+**What the report cases are evidence for.** pgTAP `110` proves the `inspection-reports`
+policies through SQL. Cases 22a–22e own the half only the hosted project can answer: how
+the Storage API spells each refusal (`Duplicate` for a second write, a refusal for
+`x-upsert`, `[]` for `remove()`), that a folder listing reflects the object beneath it and
+runs under the caller's role, and that the app's own publish path meets the one name the
+policy pins. If the live storage-api ever spells a refusal differently, 22a–22b go red and
+`SupabaseReportStore` in `supabase_repositories.dart` is the one place to adjust.
 
 **How the offline half is modelled.** The offline *phase* is deterministic — a
 `LocalDraftBook` over an in-memory store, holding exactly what the device would have
@@ -83,6 +99,9 @@ assertions 6–8 would pass while proving nothing.
    supabase link --project-ref <ref>
    supabase db push
    ```
+   Cases 22a–22e need the `inspection-reports` bucket and its three policies, which
+   `20260905001100_inspection_reports.sql` creates. A project behind that migration
+   fails 22a on the upload with a bucket-not-found refusal — loudly, not silently.
 3. Create two users in **Authentication → Users**, both with "Auto Confirm User"
    enabled. Neither may be an admin — D3 changes what an admin can see, which
    would invalidate assertions 6 and 7.
@@ -142,12 +161,16 @@ out of shell history.
 
 ## Cleanup
 
-A smoke run creates inspections, punch items, a photo and a storage object, and
-removes each one as it goes. One fixture it cannot remove: case 22 submits an
-inspection on purpose, submit is one-way (D10), and the delete policy requires
-`status = 'draft'` (D17). The run's own teardown therefore matched zero rows and
-succeeded silently, leaving one `SMOKE … do-not-keep` row in the shared project
-per CI run. Six had accumulated before anyone looked at the demo queue.
+A smoke run creates inspections, punch items, a photo, a photo object and a report
+object, and removes each one as it goes. Two fixtures it cannot remove. Case 22
+submits an inspection on purpose, submit is one-way (D10), and the delete policy
+requires `status = 'draft'` (D17). The run's own teardown therefore matched zero
+rows and succeeded silently, leaving one `SMOKE … do-not-keep` row in the shared
+project per CI run. Six had accumulated before anyone looked at the demo queue.
+Case 22a then stores that inspection's report in `inspection-reports`, a bucket
+with no DELETE policy for any role (D21 amended, D31): `remove()` matches zero rows
+and returns `[]`, which case 22b proves, so a run may leave one inspection, one item
+and one report object, and nothing else.
 
 ### Where the privileged key lives
 
@@ -195,32 +218,44 @@ names it, which is why the setup below deletes one if it is there.
 
 Explicit identifiers, and nothing else:
 
-- inspection ids, item ids and storage object paths the run recorded **as it
-  created each one**; or
-- the same three named on the command line, for the one-off below.
+- inspection ids, item ids, photo object paths (`inspection-photos`) and report
+  object paths (`inspection-reports`) the run recorded **as it created each
+  one**; or
+- the same four named on the command line — `--inspection`, `--item`,
+  `--object`, `--report` — for the one-off below.
 
 There is no pattern match anywhere in the script: no delete by name, owner,
 date, status or prefix. A missing or stale manifest deletes nothing — a cleanup
 that cannot name its target does not guess.
 
-Storage objects go through the **Storage API, never SQL**. Postgres refuses a
-direct delete from `storage.objects` (`protect_delete()`), because removing the
-row would leave the backing file behind for good.
+Storage objects in both buckets go through the **Storage API, never SQL**.
+Postgres refuses a direct delete from `storage.objects` (`protect_delete()`),
+because removing the row would leave the backing file behind for good. Targets
+are bucket-qualified: a path says nothing about which bucket holds it, so the
+manifest records photo objects under `storagePaths` and report objects under
+`reportPaths`, and the log names the bucket on every object line.
 
-Ordering is objects, then items, then inspections. Deleting the row first
-strands the bytes: the object's own delete policy reaches through the owning
-inspection, so afterwards nothing can reach it — which is how the orphans below
-were made.
+Ordering is photo objects, then report objects, then items, then inspections.
+Deleting the row first strands the bytes: a photo object's own delete policy
+reaches through the owning inspection, so afterwards nothing can reach it —
+which is how the orphans below were made. A report object has no client delete
+path at all, whatever the row's state; it goes before the rows for the same
+reason, so a failure between the two leaves a nameable object rather than an
+orphan.
 
 The manifest is flushed on every registration rather than at the end, because
 the run it exists for is the one that dies halfway. It crosses between the two
 jobs as a build artifact and holds UUIDs and storage paths only — no
-credentials, no user data.
+credentials, no user data. The report path is registered *before* the upload
+(its name is fixed by the policy), so a process that dies with the object landed
+and no response read still names it.
 
-Case 38 is the regression guard. It asks the server which of the run's rows and
-items are still standing and requires the answer to be exactly one inspection
-and its one item — the pair case 22 and 23 prove cannot be deleted. A fixture
-added later without cleanup fails it.
+Case 38 is the regression guard. It asks the server which of the run's rows,
+items and report objects are still standing and requires the answer to be
+exactly one inspection, its one item and its one report object — the three that
+cases 22, 23 and 22b prove cannot be deleted by any client. A fixture added
+later without cleanup fails it. The purge's last line counts what it removed and
+ends `nothing named remains`.
 
 ### Enabling it
 
@@ -265,6 +300,17 @@ Those two objects are orphans: their parent inspections no longer exist and
 neither has an `item_photos` row, so no client can list, sign or delete them.
 67 bytes and 134,595 bytes. The first is the smoke test's own `_tinyPng`
 fixture; the second is a real photo from the device QA in `docs/ACCEPTANCE.md`.
+
+A stranded report object — a run whose manifest was lost after case 22a — is
+named the same way, in its own bucket:
+
+```
+dart run tool/smoke_purge.dart \
+  --report '<inspector uid>/<inspection id>/report.pdf'
+```
+
+`--object` is `inspection-photos` and `--report` is `inspection-reports`; the
+script never guesses a bucket from a path.
 
 The device-QA inspection is a separate call, and one to make deliberately:
 

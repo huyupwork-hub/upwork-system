@@ -1,8 +1,11 @@
 /// An immutable projection of one submitted inspection.
 ///
-/// The report is a *view* of the database, never a second source of truth: no
-/// report content is stored anywhere, and regenerating always reproduces the
-/// current submitted record (D21).
+/// The report is a *view* of the database, never a second source of truth:
+/// the document is rendered from the submitted record, and regenerating
+/// always reproduces the current submitted record (D21). One rendering — the
+/// one made at submission — is stored write-once for reviewers (D21 amended,
+/// D31); it is content-equivalent to a fresh one, and the record stays the
+/// authority.
 ///
 /// Everything is loaded once, up front, and the whole document renders from this
 /// object. Nothing queries Supabase while pages are being laid out — otherwise a
@@ -119,4 +122,52 @@ class ReportPhotoUnavailableException implements Exception {
   String toString() =>
       'The report could not be generated: a photograph could not be '
       'retrieved ($storagePath). Check your connection and try again.';
+}
+
+/// The report was rendered but could not be uploaded for reviewers.
+///
+/// Raised only once the submission is permanent (D10), and the copy says so
+/// first: an upload failure is not a submit failure, and must never read as
+/// one. [transport] separates "the server could not be reached" from "the
+/// server answered, and the answer was no" — `isTransportFailure`'s rule. The
+/// first is offered again on the inspector's say-so; the second is shown
+/// verbatim, the repository's rule for refusals.
+class ReportPublishException implements Exception {
+  const ReportPublishException(
+    this.inspectionId,
+    this.cause, {
+    required this.transport,
+  });
+
+  final String inspectionId;
+  final Object cause;
+  final bool transport;
+
+  @override
+  String toString() => transport
+      ? 'The inspection was submitted. Its PDF report could not be uploaded '
+          'for reviewers because the server could not be reached. Try again '
+          'when you have signal.'
+      : 'The inspection was submitted. Its PDF report could not be uploaded '
+          'for reviewers: $cause';
+}
+
+/// The rendered report is over the bucket's cap and was not uploaded.
+///
+/// Refused before any byte leaves the device: the bucket would answer 413,
+/// after the inspector's bandwidth had been spent. Not a transport failure and
+/// not retried — the document will be the same size next time. Sharing from
+/// the device is untouched (D21).
+class ReportTooLargeException implements Exception {
+  const ReportTooLargeException(this.bytes);
+
+  final int bytes;
+
+  @override
+  String toString() {
+    final size = (bytes / (1024 * 1024)).toStringAsFixed(1);
+    const cap = ReportLimits.maxBytes ~/ (1024 * 1024);
+    return 'The PDF report is $size MB, over the $cap MB limit, and cannot be '
+        'uploaded for reviewers. Sharing it from this device still works.';
+  }
 }

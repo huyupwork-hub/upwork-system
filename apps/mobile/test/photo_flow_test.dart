@@ -71,6 +71,8 @@ void main() {
       loader: ReportLoader(items: items, photos: photos, profiles: profiles),
       renderer: reportRenderer,
       sharer: reportSharer,
+      store: FakeReportStore(),
+      currentUserId: () => 'user-1',
     );
   });
 

@@ -70,12 +70,17 @@ same behaviour for its own cleanup.
 | `20260905000600_function_hardening` | withdraw default EXECUTE, pin `search_path` | yes — 2026-09-05 |
 | `20260905000700_signup_gate` | close self-signup at the database | yes — 2026-09-05 |
 | `20260905000800_remove_stranded_qa_inspection` | delete one QA row | yes — 2026-09-05 |
+| `20260905000900_remove_smoke_residue` | delete four smoke-residue rows by id (§5) | yes — read back 2026-09-05 |
+| `20260905001000_remove_last_smoke_residue` | delete the last pre-cleanup smoke row by id (§5) | yes — read back 2026-09-05 |
+| `20260905001100_inspection_reports` | private report bucket, write-once policy (D31) | **no — pending.** Pushed after this slice's CI is green and **before** `v0.1.0-demo.3` is published (§7): the old build never uploads, and the new build's upload is refused verbatim until the policies exist |
 
-The last three were applied with `supabase db push` on 2026-09-05, after CI run
-`33935381654` (§5) had executed them from empty and from seed and run the pgTAP suite
-against them three times. `supabase migration list` shows all eight local ids matched
-remotely. Read back from the live project afterwards, through the management API's SQL
-endpoint:
+Migrations `000600`–`000800` were applied with `supabase db push` on 2026-09-05, after CI
+run `33935381654` (§5) had executed them from empty and from seed and run the pgTAP suite
+against them three times; `supabase migration list` showed all eight local ids matched
+remotely. `000900` and `001000` followed with PRs #7 and #9. The project's migration list,
+read back through the management API on 2026-09-05, holds ten ids — everything through
+`001000` — and not `001100`. Read back from the live project after the `000600`–`000800`
+push, through the management API's SQL endpoint:
 
 | Check | Result |
 |---|---|
@@ -110,6 +115,36 @@ PATCH https://api.supabase.com/v1/projects/dkgrpoudebqvtpxdetdg/config/auth
 
 Both halves are wanted. The toggle gives the clean refusal; the migration survives a
 configuration change nobody reviewed.
+
+### Read-back for `001100`, after its push — pending
+
+Recorded here when `supabase db push` has applied `20260905001100_inspection_reports`,
+through the same SQL endpoint:
+
+| Check | Expected |
+|---|---|
+| `select id, public, file_size_limit, allowed_mime_types from storage.buckets where id = 'inspection-reports'` | one row: `false`, `52428800`, `{application/pdf}` |
+| `select policyname, cmd from pg_policies where schemaname = 'storage' and coalesce(qual,'') \|\| coalesce(with_check,'') like '%inspection-reports%'` | exactly three: `inspection reports: owner read` (SELECT), `inspection reports: owner publish once` (INSERT), `inspection reports: admin read submitted` (SELECT) — no UPDATE, no DELETE |
+
+### Exposed schemas: `storage` must stay off
+
+PostgREST serves only the schemas listed under Settings → API → *Exposed schemas*. The
+report bucket's policies assume every `storage.objects` row is written by the Storage API,
+which lands the bytes before the row. If `storage` were exposed, an inspector could insert
+a `storage.objects` row with nothing behind it at their own pinned name — a phantom that
+signs but does not download, self-inflicted and permanent, because the bucket has no
+UPDATE or DELETE policy and nothing can replace it (D31). Read back like `disable_signup`
+was, through `GET https://api.supabase.com/v1/projects/dkgrpoudebqvtpxdetdg/postgrest`
+(`db_schema`), and recorded here with the `001100` push:
+
+| Check | Result |
+|---|---|
+| `db_schema` on the live project | **pending** — expected `public, graphql_public`, and `storage` absent |
+
+The repository's own `supabase/config.toml` has no `[api]` section, so the local stack and
+CI expose the CLI default — `public` and `graphql_public` — and pgTAP `110` runs against
+exactly that. The live value is a dashboard setting, not in this repository, which is why
+it is read back rather than assumed.
 
 ---
 
@@ -158,6 +193,11 @@ rather than a local build. `v0.1.0-demo.2` was cut that way: artifact
 not the head: `ef90622f` is *Merge 882d9c9 into 6fc2ee5*, and its tree `942bb45b` is the
 tree of `main` at `76339db` (checked with `git rev-parse <commit>^{tree}` on both), which
 is why the asset is named after the `main` commit.
+
+`v0.1.0-demo.3` — the stored-reports build (D31) — is cut the same way, from the CI
+artifact of the merge commit of the stored-reports PR, and only after `001100` is on prod
+(§3). Its artifact name, sha256 and tree check are recorded here when it exists; until
+then the release page above still carries `v0.1.0-demo.2`, which never uploads a report.
 
 ```
 artifact   fieldproof-android-<sha>
@@ -248,6 +288,17 @@ Since then every push leaves nothing behind. One row predates the workflow —
 `62e48279`, from the rerun of PR #7's own CI, for which no `workflow_run` ever fired — and
 `20260905001000_remove_last_smoke_residue` removes it the same way as `000900`.
 
+**The purge now covers the second bucket.** Since the stored-reports slice (D31) a smoke
+run also leaves one report object, at `<uid>/<inspection id>/report.pdf` in
+`inspection-reports`, which no client role can delete at all. The manifest records it
+under `reportPaths` — registered before the upload, since the policy fixes the name — and
+the purge removes those objects through the Storage API before the rows, after the photo
+objects, logging each as `object  inspection-reports/<path>`. Its last line now reads
+`smoke purge: removed N row(s), M photo object(s) and K report object(s); nothing named
+remains`. `SMOKE_TEST.md` has the ordering and the one-off `--report` form; the first
+cleanup run whose manifest carries a report path is recorded here with this slice's run
+ids.
+
 ---
 
 ## 6. What is mocked, limited, or unverified
@@ -264,10 +315,15 @@ does.
 repository, so a configuration change nobody reviewed would reopen the clean refusal but
 not the door.
 
-**Reports are generated on the device, and nothing is stored.** PDF rendering is Flutter-only
-(D6), the PDF is a projection rather than an artefact (D21), and the console deliberately
-contains no second PDF engine (D23). The console says so on screen. There is no cloud PDF,
-and the demo admin cannot download one.
+**Reports are rendered on the device and one rendering is stored, write-once.** Rendering
+stays Flutter-only (D6); the bytes rendered at submission are uploaded once to the private
+`inspection-reports` bucket under the inspector's own session (D21 amended, D31), and the
+console links to them through a 10-minute signed URL on the reviewer's session (D23).
+Nothing can replace or remove a stored report from any client (pgTAP `110`). An inspection
+whose upload failed shows *No PDF report has been uploaded for this inspection yet* in the
+console until its owner retries from the phone — and until §7 has run, that is what the
+three demo inspections show. What is not verified: that a stored PDF's contents match the
+record — the record is authoritative.
 
 **Offline photo capture does not work.** Drafts and punch items work offline; attaching a
 photo does not. Deferred with its reasoning in `DECISIONS.md` D27.
@@ -283,5 +339,123 @@ one, Cavendish House, is a draft. The stranded QA row is gone. What the demo adm
 sees is test residue: one `SMOKE run… do-not-keep` row per hosted smoke run, for the
 reason in §5, until the cleanup key is configured.
 
-**Storage is private.** Photographs are served through short-lived signed URLs; the bucket
-has no public path.
+**Storage is private.** Photographs and reports are served through short-lived signed
+URLs; neither bucket has a public path.
+
+---
+
+## 7. Backfilling the three demo reports
+
+**Status: pending.** Nothing below has run yet; this section is the procedure and the
+evidence it must produce, filled in when it has. Until then the console reads *No PDF
+report has been uploaded for this inspection yet* on each of the three — the reason the
+detail view distinguishes an absent report from one that could not be loaded.
+
+Northgate Retail Park, Harbour View Apartments and Meridian Distribution Centre are
+submitted and immutable (D17), owned by `fieldproof-demo-inspector@yopmail.com`. The INSERT
+policy in `20260905001100_inspection_reports` keys on `status = 'submitted'`, not on the
+moment of transition, so an inspection submitted before the migration is exactly as
+eligible as one submitted after. Nothing is re-submitted, nothing on any row is touched,
+the console is not involved (D23), and no privileged key is used anywhere.
+
+**Order:** `001100` on prod (§3), then `v0.1.0-demo.3` on the phone (§4), then the tap.
+The old build never uploads; the new build's upload is refused verbatim until the policies
+exist.
+
+### Primary — the demo phone, one tap (or three)
+
+Sign in as the demo inspector on `v0.1.0-demo.3`, open **Reports** → all three read *Not
+uploaded for reviewers* → tap **Upload 3 missing reports** (or each row's **Upload**). The
+phone renders each report from the frozen record (D6; the loader fetches Northgate's two
+photographs and Harbour View's one through the owner read policy) and uploads it once.
+Rows flip to *Uploaded for reviewers* and the summary line names the three sites. The
+state shown afterwards is re-read from the bucket, never taken from the phone's own
+bookkeeping (D27).
+
+### Fallback — headless, when no phone is at hand
+
+`apps/mobile/tool/backfill/report_backfill_test.dart`, run by hand on the T410s (the dev
+Mac has no Flutter, D1). It signs in as one inspector with the anon key, filters
+`listMine()` to submitted rows and hands them to the same `ReportService.publishMissing`
+the Reports tab calls — the real `ReportLoader`, `PdfReportRenderer` and
+`SupabaseReportStore`, the inspector's own session, the same policies. It lives under
+`tool/`, so neither CI job ever runs it (the `tool/render` precedent, D30), and it refuses
+a key whose role claim is not `anon`, and any `sb_secret_` key, before making a network
+call.
+
+```bash
+cd apps/mobile
+export SUPABASE_URL='https://dkgrpoudebqvtpxdetdg.supabase.co'
+export SUPABASE_ANON_KEY='<publishable key>'
+export BACKFILL_INSPECTOR_EMAIL='fieldproof-demo-inspector@yopmail.com'
+read -rs BACKFILL_INSPECTOR_PASSWORD && export BACKFILL_INSPECTOR_PASSWORD
+flutter test tool/backfill/ --reporter expanded
+```
+
+Environment, never `--dart-define` — defines land in the process command line and in step
+echoes. It prints a stage line per inspection as each step starts, then one result line
+per submitted inspection and a summary, and exits non-zero if any submitted inspection
+still lacks a report on a fresh `published()` read-back:
+
+```
+backfill: inspector <uid> has 3 submitted inspection(s)
+  <id>  loading
+  <id>  rendering
+  <id>  publishing
+  (the three stage lines repeat for each inspection that is uploaded)
+backfill: last error: <copy>            (only when something failed)
+  <id>  <uid>/<id>/report.pdf  <n> bytes  uploaded
+  <id>  <uid>/<id>/report.pdf  <n> bytes  uploaded
+  <id>  <uid>/<id>/report.pdf  <n> bytes  uploaded
+backfill: uploaded 3, already stored 0, failed 0, skipped 0; 0 still without a report
+```
+
+A second run prints `already` on every line and uploads nothing: `publishMissing` reads
+the bucket first, and `SupabaseReportStore.put` treats `Duplicate` as done (hosted smoke
+22e). A refused upload prints `absent  failed` for that id and the run exits 1; if the
+bucket cannot be listed at all, no per-inspection line is printed and the run fails on the
+read-back — "could not check" is neither "not uploaded" nor "done". `package:pdf` prints
+*Helvetica has no Unicode support* while rendering; that is the renderer's own warning,
+seen on the phone too, not a failure of the run.
+
+### Verify on the server, not by trusting the phone
+
+Management API SQL endpoint, as for §3's read-backs:
+
+```sql
+select name, (metadata->>'size')::int as bytes, created_at
+from storage.objects where bucket_id = 'inspection-reports' order by name;
+-- exactly three rows: <demo uid>/<id>/report.pdf for the three ids; Northgate largest
+```
+
+The runner's first line prints the demo inspector's uid, and its per-inspection lines
+carry the three pinned names verbatim, so the query's expected rows are known before it
+runs.
+
+### Verify as the reviewer
+
+Sign in to the console as `fieldproof-demo-admin`; each of the three detail pages shows
+**Download the PDF report**. `curl -sI` of the signed URL returns
+`content-type: application/pdf` and `content-disposition: attachment;
+filename="fieldproof-…pdf"`, and the body starts `%PDF-`. The product filename reaches the
+browser through that header — `createSignedUrl(…, { download })` makes Storage send it —
+and the link's own `download` attribute is only a same-origin fallback, which browsers
+ignore for the storage origin.
+
+### Evidence, once it exists
+
+| What | Where |
+|---|---|
+| The three detail pages, each with the download link | `docs/evidence/admin/` (ACCEPTANCE M5) |
+| Northgate's download, as the reviewer saved it | `docs/evidence/reports/fieldproof-northgate-retail-park-20260822-<id8>.pdf` (ACCEPTANCE G5, M3) |
+| The `storage.objects` read-back — three rows, sizes, `created_at` | this section |
+| The backfill's own lines — the phone's summary or the runner's output | this section |
+
+**Why not the alternatives.** A service-role upload of a locally rendered PDF needs a
+Flutter toolchain the dev Mac lacks (D1) and would be a rendering the device did not make
+(D6); a migration or Edge Function cannot create a storage object from SQL, and a server
+renderer is what D6, D21 and D23 exclude; a hidden re-submit is forbidden by D10 and D17
+and is unnecessary.
+
+**Idempotence.** Running either vehicle twice uploads nothing the second time; hosted
+smoke 22e is the proof.

@@ -9,6 +9,7 @@ import 'package:fieldproof/src/offline/draft_sync.dart';
 import 'package:fieldproof/src/report/report_renderer.dart';
 import 'package:fieldproof/src/report/report_sharer.dart';
 import 'package:fieldproof/src/report/report_snapshot.dart';
+import 'package:fieldproof/src/report/report_store.dart';
 
 /// In-memory stand-ins. They model the *client* contract only. Access control is
 /// the database's job and is proven by the pgTAP suite in supabase/tests — these
@@ -445,11 +446,53 @@ class FakeReportRenderer implements ReportRenderer {
   final List<ReportSnapshot> rendered = [];
   Object? failWith;
 
+  /// What the next render returns, when a test needs a document of a
+  /// particular size — the over-the-cap case. Null keeps the default.
+  Uint8List? output;
+
   @override
   Future<Uint8List> render(ReportSnapshot snapshot) async {
     if (failWith != null) throw failWith!;
     rendered.add(snapshot);
-    return Uint8List.fromList('%PDF-1.7 fake'.codeUnits);
+    return output ?? Uint8List.fromList('%PDF-1.7 fake'.codeUnits);
+  }
+}
+
+/// In-memory report bucket. Write-once like the real one: a second put at an
+/// existing key records the attempt and completes without overwriting, which
+/// is what the production store's Duplicate mapping amounts to. Enforces no
+/// ownership rule — see the note on [FakeInspectionItemsRepository]; the
+/// write-once policy itself is proven in pgTAP `110` and hosted smoke 22b.
+class FakeReportStore implements ReportStore {
+  final Map<String, Uint8List> objects = {};
+
+  /// Every path a put was asked for, in order, including the attempts
+  /// [failPut] refused — the record of what was asked, not of what landed.
+  final List<String> puts = [];
+
+  /// Set to make `put` throw: a `SocketException` stands in for no signal, a
+  /// `StorageException` for the bucket answering no.
+  Object? failPut;
+
+  /// Set to make `published` throw — the listing lives on the server, so it is
+  /// unreachable exactly when everything else is, and the screens must show
+  /// "could not check" rather than "not uploaded" (D28).
+  Object? failPublished;
+
+  @override
+  Future<void> put(String path, Uint8List bytes) async {
+    puts.add(path);
+    if (failPut != null) throw failPut!;
+    objects.putIfAbsent(path, () => bytes);
+  }
+
+  @override
+  Future<Set<String>> published(String inspectorId) async {
+    if (failPublished != null) throw failPublished!;
+    return {
+      for (final path in objects.keys)
+        if (path.startsWith('$inspectorId/')) path.split('/')[1],
+    };
   }
 }
 
