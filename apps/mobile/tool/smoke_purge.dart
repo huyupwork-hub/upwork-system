@@ -378,18 +378,41 @@ class _Api {
   /// Deletes one object through the Storage API.
   ///
   /// Never SQL: Postgres refuses a direct delete from `storage.objects` — the
-  /// guard exists because removing the row leaves the backing file behind. A 404
-  /// counts as absent rather than failed, since the run's own teardown removes
-  /// the photo while the inspection is still a draft and on a clean run there is
-  /// nothing here.
+  /// guard exists because removing the row leaves the backing file behind. An
+  /// absent object counts as absent rather than failed, since the run's own
+  /// teardown removes the photo while the inspection is still a draft and on a
+  /// clean run there is nothing here.
+  ///
+  /// Storage reports that case as HTTP 400 with the 404 inside the body —
+  /// `{"statusCode":"404","error":"not_found","code":"NoSuchKey"}` — not as an
+  /// HTTP 404. The first real run of smoke-cleanup.yml (33945154489, 2026-09-05)
+  /// removed every row and then exited 1 on exactly that response, so both
+  /// spellings are read as absent here.
   Future<bool> deleteObject(String bucket, String path) async {
     final uri = Uri.parse(
       '$baseUrl/storage/v1/object/$bucket/${_encodePath(path)}',
     );
     final res = await _send('DELETE', uri);
     if (res.ok) return true;
-    if (res.status == 404) return false;
+    if (_isNotFound(res)) return false;
     throw _ApiException('storage delete -> ${res.status} ${res.body}');
+  }
+
+  /// True for the two ways Storage says "no such object": a plain HTTP 404, or
+  /// HTTP 400 whose body carries `statusCode` 404 / `code` NoSuchKey. Anything
+  /// else — 401, 403, 5xx — is a real failure and stays one.
+  static bool _isNotFound(_Response res) {
+    if (res.status == 404) return true;
+    if (res.status != 400) return false;
+    try {
+      final body = json.decode(res.body);
+      if (body is! Map) return false;
+      return body['statusCode']?.toString() == '404' ||
+          body['code'] == 'NoSuchKey' ||
+          body['error'] == 'not_found';
+    } on FormatException {
+      return false;
+    }
   }
 
   Future<int> deleteByIds(String table, List<String> ids) async {
