@@ -75,10 +75,18 @@ will not claim locally something no server has agreed to.
 
 | | |
 |---|---|
-| Commit | `f12d71d` on `main` |
-| CI | [run 33500750773](https://github.com/huyupwork-hub/upwork-system/actions/runs/33500750773) — six gates green |
+| Commit | **not recorded.** See below |
 | Supabase | hosted project `dkgrpoudebqvtpxdetdg`, region `ap-south-1` |
 | Keys in the browser | the publishable key only. The app refuses to start with a privileged one |
+
+**Why the commit is not named.** Vercel auto-deploy is off, for the reason in the
+limitations above, so production is deployed by hand. A hand-made deployment carries no
+git metadata: the live deployment `dpl_7mY5ksjdvqk8jC9NqZtRWuQpKPRh`, created
+2026-09-02, records no commit, no branch and no SHA. This page previously named
+`f12d71d`. That claim could not be reproduced from the deployment itself, and the
+deployment's timestamp points at a different commit again, so it has been withdrawn
+rather than corrected to a second unverifiable value. Restoring a commit here means
+redeploying production from a known one and recording it at that moment.
 
 ## Known limitations, deliberately not fixed
 

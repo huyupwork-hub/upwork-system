@@ -4,6 +4,12 @@ project_id = "fieldproof"
 
 [db]
 major_version = 15
+# Not the CLI default (54322). The self-hosted runner (D16) is shared with another
+# project whose local stack sits on the defaults, and two stacks on one port leave
+# `supabase db start` with a container it can never bind — CI run 33933212105 failed
+# that way before a single migration ran. A port of our own removes the collision
+# instead of asking whoever is on the box to stop their stack first.
+port = 54332
 
 # Realtime is not in FieldProof V1 scope, and leaving it enabled makes the local database
 # unusable on pre-AVX hardware. The CLI runs the Realtime image as a one-shot seeding job
