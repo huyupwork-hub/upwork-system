@@ -230,9 +230,13 @@ Each hosted smoke *execution* therefore leaves one submitted
 `SMOKE run<id>x1 submitted do-not-keep` inspection in the live project, visible to the
 demo admin; three exist as of 2026-09-05 (`5113fcd3…`, `72a60c84…`, `4a3a40f3…`, from
 runs `33933212105`, `33935381654`, `33936856376`; the cancelled `33922739927` never ran
-its smoke). Removing them needs a valid service-role key in the environment *and* a path
-on which it resolves — a `workflow_dispatch` of `hosted-smoke.yml`, or `ci.yml` passing
-it through. Nothing else in the repository may delete a submitted row (D17).
+its smoke; a fourth, from `33938892430`, followed the docs push). Two fixes, both in
+`fix/smoke-cleanup-path`: `.github/workflows/smoke-cleanup.yml` moves the purge into a
+`workflow_run` of its own, where the environment secret resolves and `ci.yml` still never
+names the key (the design PR #5 arrived at on 2026-09-02, cherry-picked); and
+`20260905000900_remove_smoke_residue` deletes the four rows by explicit id, the only route
+D17 and the channel leave for a submitted row. The key itself was replaced in the
+environment on 2026-09-05 02:47Z.
 
 ---
 
