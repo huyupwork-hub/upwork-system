@@ -1,0 +1,17 @@
+# What a root-level `vercel deploy` must never upload. The project's Root Directory is
+# apps/admin, so a hand deploy has to be run from here — and the CLI then ships the whole
+# checkout, ignored files included. Deployment dpl_9xpTHaaq6uus7zf7dS2LTkeksi93 (2026-09-05)
+# carried the root .env and supabase/.temp/ that way, which is why this file exists.
+# (git-triggered deployments never had the problem: they build from the commit.)
+.env
+.env.*
+!.env.example
+supabase/.temp/
+apps/mobile/build/
+apps/mobile/.dart_tool/
+apps/admin/.env
+apps/admin/.env.*
+!apps/admin/.env.example
+*.apk
+*.aab
+.git/
