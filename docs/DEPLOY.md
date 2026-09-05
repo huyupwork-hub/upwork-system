@@ -91,16 +91,17 @@ one personal admin profile exist in the project but are not on it, which is fine
 those `auth.users` rows exist and would stop them being re-created through sign-up if they
 were ever deleted.
 
-### Self-signup: closed at the database, still open in Auth configuration
+### Self-signup: closed at the database and in Auth configuration
 
 `20260905000700_signup_gate` is applied: `handle_new_user()` now refuses any address not
 in `signup_allowlist`, so a stranger's sign-up fails at the trigger and strands neither an
 `auth.users` row nor a profile (proved by `supabase/tests/100_signup_gate.test.sql`).
 
-The project-level toggle is a separate thing and is **still open**: re-read after the
-migration, on 2026-09-05, `GET /auth/v1/settings` still returns `"disable_signup": false`.
-It is not in this repository and has to be turned off separately, either in the dashboard
-(Authentication → Sign In / Providers → *Allow new users to sign up*) or with:
+The project-level toggle is a separate thing, not in this repository. It was turned off in
+the dashboard on 2026-09-05 (Authentication → Sign In / Providers → *Allow new users to
+sign up*): `GET /auth/v1/settings` read `"disable_signup": false` after the migration and
+`true` after the toggle. Should it ever come back on, the database still refuses; the
+setting can also be restored with:
 
 ```
 PATCH https://api.supabase.com/v1/projects/dkgrpoudebqvtpxdetdg/config/auth
@@ -250,7 +251,9 @@ it, `dpl_7mY5ksjdvqk8jC9NqZtRWuQpKPRh` (2026-09-02), was likewise a git build �
 because `vercel inspect` does not print git metadata; `vercel api /v13/deployments/<id>`
 does.
 
-**The Auth sign-up toggle is still on** (§3). The database refuses strangers regardless.
+**Self-signup** is off at both layers as of 2026-09-05 (§3); the toggle lives outside the
+repository, so a configuration change nobody reviewed would reopen the clean refusal but
+not the door.
 
 **Reports are generated on the device, and nothing is stored.** PDF rendering is Flutter-only
 (D6), the PDF is a projection rather than an artefact (D21), and the console deliberately
