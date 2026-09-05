@@ -13,11 +13,16 @@
 // `hosted_smoke_test.dart` still refuses to start under anything but an anon
 // key, which is the property it exists to prove.
 //
+// The stored report (D21 amended, D31) made a second such fixture: case 22a
+// uploads the submitted inspection's report to `inspection-reports`, a bucket
+// with no DELETE policy for any role, so no client can ever remove it. Without
+// this script every hosted run would strand one object for good.
+//
 // SCOPE. Explicit identifiers only:
 //
-//   * inspection ids, item ids and storage object paths recorded by the run as
-//     it created each one, or
-//   * the same three, named on the command line for a documented one-off.
+//   * inspection ids, item ids, photo object paths and report object paths
+//     recorded by the run as it created each one, or
+//   * the same four, named on the command line for a documented one-off.
 //
 // There is no pattern match anywhere in this file. No delete by name, by owner,
 // by date, by status, or by prefix. If the manifest is missing, nothing is
@@ -25,12 +30,15 @@
 //
 // Storage objects go through the Supabase Storage API, never SQL: Postgres
 // refuses a direct delete from `storage.objects` precisely because it would
-// leave the backing file behind.
+// leave the backing file behind. Targets are bucket-qualified: a path says
+// nothing about which bucket holds it, so photos and reports are recorded,
+// named and logged apart.
 //
 // Usage (from apps/mobile):
 //
 //   dart run tool/smoke_purge.dart
-//   dart run tool/smoke_purge.dart --inspection <uuid> --object <path> ...
+//   dart run tool/smoke_purge.dart --inspection <uuid> --object <path> \
+//                                  --report <path> ...
 //
 // Environment:
 //   SUPABASE_URL                 https://<ref>.supabase.co
@@ -45,7 +53,8 @@ import 'dart:convert';
 import 'dart:io';
 
 const String _defaultManifest = 'build/smoke-manifest.json';
-const String _bucket = 'inspection-photos';
+const String _photoBucket = 'inspection-photos';
+const String _reportBucket = 'inspection-reports';
 
 /// Dart ignores whatever `main` returns, so the outcome has to be assigned to
 /// `exitCode` or the step is green no matter what happened. Keeping the logic in
@@ -105,11 +114,13 @@ Future<int> _run(List<String> args) async {
   stdout.writeln('smoke purge: source=${targets.source} '
       'inspections=${targets.inspectionIds.length} '
       'items=${targets.itemIds.length} '
-      'objects=${targets.storagePaths.length}');
+      'objects=${targets.storagePaths.length} '
+      'reports=${targets.reportPaths.length}');
 
   final api = _Api(url, key);
   final storageFailures = <String>[];
   var removedObjects = 0;
+  var removedReports = 0;
   var removedRows = 0;
 
   try {
@@ -126,20 +137,32 @@ Future<int> _run(List<String> args) async {
     // owning inspection, and Postgres refuses a direct delete from
     // storage.objects, so nothing could reach it afterwards. That ordering is
     // how the two orphans already in this project were made.
-    for (final path in targets.storagePaths) {
-      stdout.writeln('  object  $path');
-      try {
-        if (await api.deleteObject(_bucket, path)) {
-          removedObjects++;
-        } else {
-          stdout.writeln('          (already absent)');
+    //
+    // Report objects are not gated on the row the way photos are — no client
+    // can delete them whatever the row's state — but they go before the rows
+    // for the same reason: bytes before the record they belong to, so a
+    // failure between the two leaves a nameable object, not an orphan.
+    Future<int> removeObjects(String bucket, List<String> paths) async {
+      var removed = 0;
+      for (final path in paths) {
+        stdout.writeln('  object  $bucket/$path');
+        try {
+          if (await api.deleteObject(bucket, path)) {
+            removed++;
+          } else {
+            stdout.writeln('          (already absent)');
+          }
+        } on _ApiException catch (e) {
+          // Collected rather than thrown: an object left behind is a leak,
+          // and a row left behind because of an object is two.
+          storageFailures.add('$bucket/$path ($e)');
         }
-      } on _ApiException catch (e) {
-        // Collected rather than thrown: an object left behind is a leak, and a
-        // row left behind because of an object is two.
-        storageFailures.add('$path ($e)');
       }
+      return removed;
     }
+
+    removedObjects = await removeObjects(_photoBucket, targets.storagePaths);
+    removedReports = await removeObjects(_reportBucket, targets.reportPaths);
 
     // Items before their parents. The FK would cascade them anyway, but naming
     // them is what the scope promises, and it makes the log say what went.
@@ -177,8 +200,9 @@ Future<int> _run(List<String> args) async {
       return 1;
     }
 
-    stdout.writeln('smoke purge: removed $removedRows row(s) and '
-        '$removedObjects object(s); nothing named remains');
+    stdout.writeln('smoke purge: removed $removedRows row(s), '
+        '$removedObjects photo object(s) and $removedReports report '
+        'object(s); nothing named remains');
     return 0;
   } on _ApiException catch (e) {
     _error('purge failed: $e');
@@ -204,25 +228,37 @@ class _Targets {
     required this.inspectionIds,
     required this.itemIds,
     required this.storagePaths,
+    required this.reportPaths,
   });
 
   final String source;
   final List<String> inspectionIds;
   final List<String> itemIds;
+
+  /// Objects in inspection-photos.
   final List<String> storagePaths;
 
+  /// Objects in inspection-reports. Apart from [storagePaths] because the
+  /// delete names a bucket, and a path alone does not say which.
+  final List<String> reportPaths;
+
   bool get isEmpty =>
-      inspectionIds.isEmpty && itemIds.isEmpty && storagePaths.isEmpty;
+      inspectionIds.isEmpty &&
+      itemIds.isEmpty &&
+      storagePaths.isEmpty &&
+      reportPaths.isEmpty;
 
   static _Targets none(String source) => _Targets(
         source: source,
         inspectionIds: const [],
         itemIds: const [],
         storagePaths: const [],
+        reportPaths: const [],
       );
 }
 
-/// `--inspection <uuid>`, `--item <uuid>`, `--object <path>`, repeatable.
+/// `--inspection <uuid>`, `--item <uuid>`, `--object <path>` (inspection-photos)
+/// and `--report <path>` (inspection-reports), all repeatable.
 ///
 /// The documented one-off path. Naming targets on the command line skips the
 /// manifest entirely, which is what makes it usable for artefacts no run
@@ -231,6 +267,7 @@ _Targets _parseArgs(List<String> args) {
   final inspections = <String>[];
   final items = <String>[];
   final objects = <String>[];
+  final reports = <String>[];
 
   for (var i = 0; i < args.length; i++) {
     final flag = args[i];
@@ -245,9 +282,12 @@ _Targets _parseArgs(List<String> args) {
         items.add(value);
       case '--object':
         objects.add(value);
+      case '--report':
+        reports.add(value);
       default:
         throw FormatException(
-          'unknown argument "$flag"; expected --inspection, --item or --object',
+          'unknown argument "$flag"; expected --inspection, --item, --object '
+          'or --report',
         );
     }
   }
@@ -257,6 +297,7 @@ _Targets _parseArgs(List<String> args) {
     inspectionIds: inspections,
     itemIds: items,
     storagePaths: objects,
+    reportPaths: reports,
   );
 }
 
@@ -294,11 +335,15 @@ _Targets _fromManifest() {
     return _Targets.none('stale manifest');
   }
 
+  // The keys are the ones _RunManifest in test_hosted/hosted_smoke_test.dart
+  // writes; a manifest from before the report bucket simply has no
+  // `reportPaths`, and _stringList reads that as none.
   return _Targets(
     source: path,
     inspectionIds: _stringList(decoded['inspectionIds']),
     itemIds: _stringList(decoded['itemIds']),
     storagePaths: _stringList(decoded['storagePaths']),
+    reportPaths: _stringList(decoded['reportPaths']),
   );
 }
 

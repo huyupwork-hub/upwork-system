@@ -1,8 +1,9 @@
 /// Hosted Supabase authenticated smoke test.
 ///
-/// Proves the Auth -> Create Inspection slice against a REAL hosted project,
-/// which no other test in this repository does: `test/` runs entirely against
-/// in-memory fakes and touches no network.
+/// Proves the Auth -> Create Inspection slice — and, since D31, the stored
+/// report (cases 22a–22e) — against a REAL hosted project, which no other test
+/// in this repository does: `test/` runs entirely against in-memory fakes and
+/// touches no network.
 ///
 /// Deliberately NOT under `test/`. `flutter test` with no arguments runs only
 /// `test/`, so this cannot accidentally join the hermetic suite and make it
@@ -45,6 +46,12 @@ import 'package:fieldproof/src/offline/draft_store.dart';
 import 'package:fieldproof/src/offline/draft_sync.dart';
 import 'package:fieldproof/src/offline/local_draft.dart';
 import 'package:fieldproof/src/offline/offline_status.dart';
+import 'package:fieldproof/src/report/report_loader.dart';
+import 'package:fieldproof/src/report/report_renderer.dart';
+import 'package:fieldproof/src/report/report_service.dart';
+import 'package:fieldproof/src/report/report_sharer.dart';
+import 'package:fieldproof/src/report/report_snapshot.dart';
+import 'package:fieldproof/src/report/report_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -109,7 +116,14 @@ void main() {
   late InspectionItemsRepository itemsB;
   late PhotosRepository photosA;
   late PhotosRepository photosB;
+  late ReportService reportsA;
   ItemPhoto? photo;
+
+  /// The one name the report policy admits for [created], and the bytes the
+  /// signed URL served in case 22a — what 22b's "unchanged" is measured
+  /// against.
+  String? reportPath;
+  List<int>? reportBytes;
 
   InspectionItem? item;
 
@@ -207,6 +221,17 @@ void main() {
       metadata: SupabasePhotoMetadataStore(clientB),
       currentUserId: () => userBId,
     );
+    // The app's own publish path: the real loader over the real repositories,
+    // the real renderer (pure Dart, no platform channel) and the real store,
+    // all under A's session. A sharer is required by the constructor and must
+    // never be reached from here — publishing does not share.
+    reportsA = ReportService(
+      loader: ReportLoader(items: itemsA, photos: photosA, profiles: profilesA),
+      renderer: const PdfReportRenderer(),
+      sharer: const _NeverShare(),
+      store: SupabaseReportStore(clientA),
+      currentUserId: () => userAId,
+    );
   });
 
   tearDownAll(() async {
@@ -246,7 +271,11 @@ void main() {
     // The submitted fixture cannot go this way — submit is one-way (D10) and
     // the delete policy requires a draft (D17) — so it is left for
     // tool/smoke_purge.dart, which runs after this process exits under a key
-    // this process never holds. Case 38 asserts that it is the only residue.
+    // this process never holds. Nor can its stored report: inspection-reports
+    // has no DELETE policy for any role (D31), so a remove() here would match
+    // zero rows and return [] — case 22b proves exactly that. The manifest's
+    // reportPaths names it for the purge. Case 38 asserts that those are the
+    // only residue.
 
     await _attempt('sign out A', clientA.auth.signOut);
     await _attempt('sign out B', clientB.auth.signOut);
@@ -599,6 +628,240 @@ void main() {
       ),
       throwsA(anything),
       reason: 'no photo may be added under a submitted inspection',
+    );
+  });
+
+  // ------------------------------------------------------------ stored report
+  //
+  // One rendering of the report is uploaded once the inspection is submitted
+  // and stored write-once (D21 amended, D31). pgTAP 110 proves the policies
+  // through SQL. What only the hosted project can answer is how the Storage
+  // API spells each refusal, that a folder listing reflects the object beneath
+  // it and runs under the caller's role, and that the app's own publish path —
+  // the real renderer, the real store, the real session — meets the one name
+  // the policy pins. Named 22a–22e rather than renumbered: the case numbers
+  // are cited from the docs.
+
+  test('22a. user A publishes the report through the app path', () async {
+    // Registered before anything else, the way ids are minted before rows are
+    // written: the policy fixes the name, so the purge can be told about it
+    // even if this process dies with the object landed and no response read.
+    final path = reportStoragePath(
+      inspectorId: userAId,
+      inspectionId: created!.id,
+    );
+    manifest.report(path);
+    reportPath = path;
+    expect(path, '$userAId/${created!.id}/report.pdf',
+        reason: 'the literal the INSERT policy pins');
+
+    // Read back through the app's own repository rather than remembered from
+    // case 22: the Reports tab hands publish() what listMine() returns, so
+    // that is what has to work.
+    final submitted =
+        (await inspectionsA.listMine()).firstWhere((i) => i.id == created!.id);
+    expect(submitted.status, InspectionStatus.submitted);
+
+    final stages = <ReportStage>[];
+    await reportsA.publish(submitted, onStage: stages.add);
+    expect(stages, [
+      ReportStage.loading,
+      ReportStage.rendering,
+      ReportStage.publishing,
+    ]);
+
+    // The listing reflects the object. published() is one listing of A's
+    // folder and the screens read upload state from it, never from a local
+    // flag (D27) — so a folder that did not appear would show "not uploaded"
+    // for a report that is there.
+    expect(await reportsA.published(), contains(created!.id));
+
+    // Served through a signed URL, as a PDF, and it is one.
+    final url = await clientA.storage
+        .from(SupabaseReportStore.bucket)
+        .createSignedUrl(path, 60);
+    final signed = await httpGet(url);
+    expect(signed.statusCode, 200, reason: 'the signed URL must resolve');
+    expect(signed.contentType, startsWith('application/pdf'));
+    expect(String.fromCharCodes(signed.bodyBytes.take(5)), '%PDF-');
+    reportBytes = signed.bodyBytes;
+
+    // Private (D19): the unsigned URL serves nothing, exactly as case 18.
+    final public =
+        clientA.storage.from(SupabaseReportStore.bucket).getPublicUrl(path);
+    expect((await httpGet(public)).statusCode, isNot(200),
+        reason: 'a public URL must not serve a private object');
+  });
+
+  test('22b. the stored report cannot be replaced or removed by its owner',
+      () async {
+    final bucket = clientA.storage.from(SupabaseReportStore.bucket);
+    final otherBytes = Uint8List.fromList('%PDF-1.7 not the report'.codeUnits);
+
+    // A second plain upload at the pinned name. The policy admits the name,
+    // so this is the unique index refusing a second object; the Storage API
+    // reports it as Duplicate, and that spelling is what
+    // SupabaseReportStore.put reads as "already there" — pinned here because
+    // the mapping in supabase_repositories.dart has no other evidence.
+    final duplicate = await storageRefusal(
+      () => bucket.uploadBinary(
+        reportPath!,
+        otherBytes,
+        fileOptions: const FileOptions(contentType: 'application/pdf'),
+      ),
+    );
+    expect(
+      duplicate.statusCode == '409' || duplicate.error == 'Duplicate',
+      isTrue,
+      reason: 'the API answered $duplicate; SupabaseReportStore.put maps '
+          'statusCode 409 / error Duplicate and nothing else',
+    );
+
+    // x-upsert asks for INSERT ... ON CONFLICT DO UPDATE, and the update half
+    // has no policy at all — write-once by absence, not by a check.
+    await expectLater(
+      bucket.uploadBinary(
+        reportPath!,
+        otherBytes,
+        fileOptions: const FileOptions(
+          contentType: 'application/pdf',
+          upsert: true,
+        ),
+      ),
+      throwsA(isA<StorageException>()),
+      reason: 'an upsert needs the UPDATE policy that does not exist',
+    );
+
+    // remove() is the silent shape: no DELETE policy, so the delete matches
+    // zero rows and the API returns an empty list rather than an error. The
+    // proof is therefore the listing afterwards, not the call's outcome.
+    final removed = await bucket.remove([reportPath!]);
+    expect(removed, isEmpty, reason: 'nothing may be deleted, not even by A');
+    expect(
+      (await bucket.list(path: '$userAId/${created!.id}'))
+          .map((e) => e.name)
+          .toList(),
+      contains('report.pdf'),
+      reason: 'the owner cannot remove a stored report',
+    );
+
+    // And the bytes are the ones 22a served: nothing above replaced them.
+    expect(await bucket.download(reportPath!), reportBytes);
+
+    // The app's store reads Duplicate as the goal state, so a retry after a
+    // lost response — the case SupabaseReportStore.put exists for — completes
+    // and replaces nothing.
+    await SupabaseReportStore(clientA).put(reportPath!, otherBytes);
+    expect(await bucket.download(reportPath!), reportBytes,
+        reason: 'put at an existing name must complete without replacing it');
+  });
+
+  test('22c. user B cannot list, sign or upload user A report', () async {
+    final asB = clientB.storage.from(SupabaseReportStore.bucket);
+    final folder = '$userAId/${created!.id}';
+
+    // list() runs under the caller's role, at both levels: a policy that hid
+    // the bytes but listed the names would still tell B which inspections A
+    // has submitted.
+    expect(await asB.list(path: folder), isEmpty,
+        reason: 'B cannot list under A inspection folder');
+    expect(await asB.list(path: userAId), isEmpty,
+        reason: 'B cannot enumerate A inspection folders');
+
+    await expectLater(
+      asB.createSignedUrl(reportPath!, 60),
+      throwsA(isA<StorageException>()),
+      reason: 'B cannot sign A report',
+    );
+
+    // Refused at the pinned name, where an object already stands, and at a
+    // sibling, where nothing does — so the second refusal can only be the
+    // policy, never the unique index.
+    for (final name in [reportPath!, '$folder/forged.pdf']) {
+      await expectLater(
+        asB.uploadBinary(
+          name,
+          Uint8List.fromList('%PDF-1.7 forged'.codeUnits),
+          fileOptions: const FileOptions(contentType: 'application/pdf'),
+        ),
+        throwsA(isA<StorageException>()),
+        reason: 'B cannot upload at $name',
+      );
+    }
+    expect(
+      (await clientA.storage
+              .from(SupabaseReportStore.bucket)
+              .list(path: folder))
+          .map((e) => e.name)
+          .toList(),
+      ['report.pdf'],
+      reason: 'nothing was planted beside the report',
+    );
+  });
+
+  test('22d. a draft cannot have a stored report', () async {
+    final draft = await inspectionsA.create(
+      NewInspection(
+        siteName: 'SMOKE $runToken draft-report do-not-keep',
+        inspectionDate: DateTime.now(),
+      ),
+    );
+    manifest.inspection(draft.id);
+
+    // The policy keys on status = 'submitted', so a draft's pinned name is not
+    // in the set and the server refuses the bytes — the loader's check in the
+    // app is not the only thing standing in the way.
+    await expectLater(
+      clientA.storage.from(SupabaseReportStore.bucket).uploadBinary(
+            reportStoragePath(inspectorId: userAId, inspectionId: draft.id),
+            Uint8List.fromList('%PDF-1.7 draft'.codeUnits),
+            fileOptions: const FileOptions(contentType: 'application/pdf'),
+          ),
+      throwsA(isA<StorageException>()),
+      reason: 'no report may be stored under a draft',
+    );
+
+    // The app refuses before any work, and refusing does not submit: asking
+    // for a report must never be the act that makes an inspection permanent.
+    await expectLater(
+      reportsA.publish(draft),
+      throwsA(isA<InspectionNotSubmittedException>()),
+    );
+    final row = await clientA
+        .from('inspections')
+        .select('status')
+        .eq('id', draft.id)
+        .single();
+    expect(row['status'], 'draft', reason: 'publish must not submit');
+    expect(await reportsA.published(), isNot(contains(draft.id)));
+
+    await clientA.from('inspections').delete().eq('id', draft.id);
+    expect(
+      (await inspectionsA.listMine()).where((i) => i.id == draft.id),
+      isEmpty,
+    );
+  });
+
+  test('22e. catch-up over a published inspection uploads nothing', () async {
+    // The backfill vehicle (DEPLOY §7) run a second time over the same state:
+    // the bucket is read first, the id is already there, and nothing is
+    // rendered or sent.
+    final submitted =
+        (await inspectionsA.listMine()).firstWhere((i) => i.id == created!.id);
+    final report = await reportsA.publishMissing([submitted]);
+    expect(report.published, isEmpty, reason: report.lastError ?? '');
+    expect(report.failed, isEmpty, reason: report.lastError ?? '');
+    expect(report.skipped, isEmpty, reason: report.lastError ?? '');
+    expect(report.lastError, isNull);
+
+    // Still exactly one object under the inspection: the one 22a made.
+    expect(
+      (await clientA.storage
+              .from(SupabaseReportStore.bucket)
+              .list(path: '$userAId/${created!.id}'))
+          .map((e) => e.name)
+          .toList(),
+      ['report.pdf'],
     );
   });
 
@@ -1034,7 +1297,42 @@ void main() {
         reason: 'storage object $path outlived the run',
       );
     }
+
+    // The report object is the run's second, and only other, residue: no
+    // client can remove it (22b), so it is the purge's job, and it is named
+    // in the manifest for that. It must still be listed as A — a report that
+    // vanished would mean a delete path exists that 110 says does not — and
+    // it must stand alone under its inspection, or something wrote a name the
+    // policy should have refused.
+    expect(
+      manifest.reportPaths,
+      created == null ? isEmpty : hasLength(1),
+      reason: 'the manifest must name the one report this run stored',
+    );
+    for (final path in manifest.reportPaths) {
+      final cut = path.lastIndexOf('/');
+      final entries = await clientA.storage
+          .from(SupabaseReportStore.bucket)
+          .list(path: path.substring(0, cut));
+      expect(
+        entries.map((e) => e.name).toList(),
+        [path.substring(cut + 1)],
+        reason: 'only report.pdf may stand under the submitted inspection',
+      );
+    }
   });
+}
+
+/// Runs [call] and hands back the [StorageException] it raised, failing when
+/// it raised none. The cases that read a refusal's shape need the exception
+/// itself, which `throwsA` does not return.
+Future<StorageException> storageRefusal(Future<void> Function() call) async {
+  try {
+    await call();
+  } on StorageException catch (e) {
+    return e;
+  }
+  fail('the Storage API accepted a request it must refuse');
 }
 
 /// A per-run token that is one lexeme and safe inside a LIKE pattern.
@@ -1067,6 +1365,11 @@ class _RunManifest {
   final Set<String> inspectionIds = <String>{};
   final Set<String> itemIds = <String>{};
   final Set<String> storagePaths = <String>{};
+
+  /// Objects in inspection-reports, kept apart from [storagePaths] because
+  /// the purge deletes from each bucket by name and a path says nothing about
+  /// which bucket holds it.
+  final Set<String> reportPaths = <String>{};
   final Set<String> userIds = <String>{};
 
   void inspection(String id) {
@@ -1079,6 +1382,10 @@ class _RunManifest {
 
   void object(String storagePath) {
     if (storagePaths.add(storagePath)) _flush();
+  }
+
+  void report(String storagePath) {
+    if (reportPaths.add(storagePath)) _flush();
   }
 
   void users(Iterable<String> ids) {
@@ -1098,6 +1405,7 @@ class _RunManifest {
           'inspectionIds': inspectionIds.toList()..sort(),
           'itemIds': itemIds.toList()..sort(),
           'storagePaths': storagePaths.toList()..sort(),
+          'reportPaths': reportPaths.toList()..sort(),
         }),
       );
     } on FileSystemException catch (e) {
@@ -1124,6 +1432,18 @@ Future<void> _attempt(String what, Future<void> Function() step) async {
   }
 }
 
+/// The publish path never opens a share sheet, and this process has no
+/// platform to open one on. A sharer that fails if reached turns the first
+/// half from an assumption into an assertion.
+class _NeverShare implements ReportSharer {
+  const _NeverShare();
+
+  @override
+  Future<bool> share(Uint8List bytes, {required String filename}) async {
+    fail('publish must never share; something tried to share $filename');
+  }
+}
+
 /// A 1x1 PNG. Small enough to upload in a smoke test, real enough to be a valid
 /// image rather than arbitrary bytes.
 const List<int> _tinyPng = [
@@ -1140,7 +1460,9 @@ const List<int> _tinyPng = [
 
 /// A plain GET, so the test can check what a private object does and does not
 /// serve. Uses dart:io directly rather than adding an http dependency.
-Future<({int statusCode, List<int> bodyBytes})> httpGet(String url) async {
+Future<({int statusCode, String? contentType, List<int> bodyBytes})> httpGet(
+  String url,
+) async {
   final client = HttpClient();
   try {
     final req = await client.getUrl(Uri.parse(url));
@@ -1149,7 +1471,11 @@ Future<({int statusCode, List<int> bodyBytes})> httpGet(String url) async {
     await for (final chunk in res) {
       bytes.addAll(chunk);
     }
-    return (statusCode: res.statusCode, bodyBytes: bytes);
+    return (
+      statusCode: res.statusCode,
+      contentType: res.headers.value(HttpHeaders.contentTypeHeader),
+      bodyBytes: bytes,
+    );
   } finally {
     client.close(force: true);
   }
