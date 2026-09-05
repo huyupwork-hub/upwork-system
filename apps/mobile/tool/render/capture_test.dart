@@ -202,6 +202,8 @@ void main() {
       loader: ReportLoader(items: items, photos: photos, profiles: profiles),
       renderer: FakeReportRenderer(),
       sharer: FakeReportSharer(),
+      store: FakeReportStore(),
+      currentUserId: () => 'user-1',
     );
   });
 

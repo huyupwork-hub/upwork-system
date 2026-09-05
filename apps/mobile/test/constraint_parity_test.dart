@@ -119,6 +119,26 @@ void main() {
         .toSet();
     expect(declared, InspectionStatus.values.map((v) => v.wire).toSet());
   });
+
+  test('the report cap matches the inspection-reports bucket limit', () {
+    // A different migration from the schema one: the bucket's row is the
+    // authority, and the app refuses an oversized rendering before uploading
+    // rather than after the bucket has answered 413.
+    final file = File(
+      '${_repoRoot()}/supabase/migrations/'
+      '20260905001100_inspection_reports.sql',
+    );
+    expect(
+      file.existsSync(),
+      isTrue,
+      reason: 'report bucket migration not found at ${file.path}',
+    );
+    final match = RegExp(r"'inspection-reports',\s*false,\s*(\d+)")
+        .firstMatch(file.readAsStringSync());
+    expect(match, isNotNull,
+        reason: 'no inspection-reports bucket row found in the migration');
+    expect(ReportLimits.maxBytes, int.parse(match!.group(1)!));
+  });
 }
 
 /// Walks up until the directory containing supabase/ is found, so the test works

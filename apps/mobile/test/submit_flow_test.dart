@@ -57,6 +57,8 @@ void main() {
       loader: ReportLoader(items: items, photos: photos, profiles: profiles),
       renderer: FakeReportRenderer(),
       sharer: FakeReportSharer(),
+      store: FakeReportStore(),
+      currentUserId: () => 'user-1',
     );
   }
 
@@ -131,7 +133,7 @@ void main() {
   });
 
   group('confirmation', () {
-    testWidgets('submitting asks first, naming both consequences',
+    testWidgets('submitting asks first, naming every consequence',
         (tester) async {
       await openDetail(tester);
       await tester.tap(submitButton());
@@ -140,6 +142,10 @@ void main() {
       expect(find.byKey(const Key('submit-confirm-sheet')), findsOneWidget);
       expect(find.textContaining('permanent record'), findsOneWidget);
       expect(find.textContaining('Reviewers'), findsOneWidget);
+      // The third: the upload that follows (D31). Named here because it is
+      // the one consequence that spends bandwidth the inspector did not ask
+      // for elsewhere.
+      expect(find.textContaining('upload its PDF report'), findsOneWidget);
       expect(inspections.submitted, isEmpty);
     });
 
@@ -203,6 +209,10 @@ void main() {
       expect(tester.widget<Text>(find.byKey(const Key('detail-status'))).data,
           'Draft');
       expect(submitButton(), findsOneWidget);
+      // And no report row: the upload is a consequence of submitting, so a
+      // refused submit has nothing to say about it either way.
+      expect(find.byKey(const Key('report-published')), findsNothing);
+      expect(find.byKey(const Key('report-unpublished')), findsNothing);
     });
 
     testWidgets('the history list reflects the new status on return',

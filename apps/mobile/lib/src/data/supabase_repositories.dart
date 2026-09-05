@@ -12,6 +12,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../offline/draft_sync.dart';
+import '../report/report_store.dart';
 import 'models.dart';
 import 'photo_workflow.dart';
 import 'repositories.dart';
@@ -387,6 +388,99 @@ class SupabaseObjectStore implements PhotoObjectStore {
     // Authenticated read through the same policies; not a public fetch.
     final data = await _client.storage.from(bucket).download(path);
     return data;
+  }
+}
+
+/// The report bucket (D21 amended, D31).
+///
+/// No service role, same client, same session — the storage policy decides.
+/// There is no remove(): no client can delete from this bucket, and the port
+/// does not let the app ask.
+class SupabaseReportStore implements ReportStore {
+  SupabaseReportStore(this._client);
+
+  final SupabaseClient _client;
+
+  static const String bucket = 'inspection-reports';
+
+  /// supabase_flutter's HTTP client has no timeout of its own, so a stalled
+  /// upload would wait forever and the screen with it. A stall is a failure,
+  /// not a wait: `TimeoutException` is already a transport failure to
+  /// `isTransportFailure`, so the inspector is offered the upload again (D31).
+  static const Duration uploadTimeout = Duration(seconds: 120);
+
+  /// The same rule for the read that gates every retry. A page of names is
+  /// small, so the allowance is shorter; without one a stalled listing would
+  /// leave both screens with no report row and nothing to tap, indefinitely.
+  static const Duration listTimeout = Duration(seconds: 30);
+
+  /// storage_client returns 100 entries unless asked for more, and says
+  /// nothing about the rest. A folder past the page would read as "not
+  /// uploaded" — a false claim (D28) — and its Upload would re-download every
+  /// photograph to meet a Duplicate, on every tap. So the listing is paged to a
+  /// short page, in pages the size the console's queue asks for
+  /// (REPORT_FOLDER_LIST_LIMIT in apps/admin). The fake cannot prove this —
+  /// it has no pages — and no hosted fixture holds more than one folder, so it
+  /// is stated here and in DATA_MODEL §6 rather than tested.
+  static const int listPageSize = 1000;
+
+  @override
+  Future<void> put(String path, Uint8List bytes) async {
+    try {
+      await _client.storage
+          .from(bucket)
+          .uploadBinary(
+            path,
+            bytes,
+            // upsert is the default, spelled out because it is the point:
+            // x-upsert would need an UPDATE policy, and there is none.
+            fileOptions: const FileOptions(
+              contentType: 'application/pdf',
+              upsert: false,
+            ),
+          )
+          .timeout(uploadTimeout);
+    } on StorageException catch (e) {
+      // The object is already there: an earlier attempt landed and its
+      // response was lost, or the client timed out after the server had
+      // finished. The bucket is write-once, so "already there" is the goal
+      // state, not an error. The Storage API reports it as HTTP 400 wrapping
+      // statusCode 409 / error "Duplicate" (hosted smoke 22b is the evidence
+      // for that shape). Every other refusal rethrows verbatim: a refusal is
+      // not an outage (D25).
+      if (e.statusCode == '409' || e.error == 'Duplicate') return;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<Set<String>> published(String inspectorId) async {
+    // The caller's own folder, under the owner SELECT policy, page by page
+    // until a short one. Each entry is an inspection id: the only object a
+    // client can write beneath it is report.pdf, so a folder here is a report
+    // there.
+    final names = <String>{};
+    for (var offset = 0;; offset += listPageSize) {
+      final entries = await _client.storage
+          .from(bucket)
+          .list(
+            path: inspectorId,
+            searchOptions: SearchOptions(limit: listPageSize, offset: offset),
+          )
+          .timeout(listTimeout);
+      final before = names.length;
+      names.addAll(entries.map((e) => e.name));
+      if (entries.length < listPageSize) return names;
+      // A full page that added nothing means the offset was not honoured. The
+      // loop would never end, so it fails instead: "could not check" is the
+      // screens' own state for that, and it is never "not uploaded" (D28).
+      if (names.length == before) {
+        throw StateError(
+          'report folder listing did not advance past $offset entries; '
+          'upload state unknown',
+        );
+      }
+    }
   }
 }
 

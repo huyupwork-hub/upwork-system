@@ -74,6 +74,25 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
   bool _submitting = false;
   String? _submitError;
 
+  /// Whether the bucket holds this inspection's report. Null until the bucket
+  /// has answered — an unknown is a state of its own and is never rendered as
+  /// "not uploaded" (D28). Read from the bucket, never kept as a local flag
+  /// (D27): the upload can succeed after the response was lost, and a phone
+  /// killed between submit and upload has no flag to consult.
+  bool? _reportPublished;
+  ReportStage? _publishStage;
+  String? _publishError;
+
+  /// The last upload failed in transit — the timeout case above all — so the
+  /// bytes may have landed after the response was lost (D31's own caveat).
+  /// The row then says "may not" rather than asserting an absence the phone
+  /// never read (D28); the retry settles it either way, since the store treats
+  /// "already there" as done. Cleared by any answer from the bucket.
+  bool _publishUnconfirmed = false;
+
+  /// The bucket could not be read when the screen asked which state to show.
+  bool _checkFailed = false;
+
   @override
   void initState() {
     super.initState();
@@ -92,6 +111,10 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
       // it. A basement with no signal still gets the findings; it just does not
       // get thumbnails, which is the right thing to lose first.
       unawaited(_loadPhotoCounts(rows));
+      // The report's upload state follows the same rule: asked of the bucket
+      // only once the findings are on screen, so the slowest read never gates
+      // the record (D24). A draft has no report to ask about.
+      if (!_isEditable) unawaited(_checkReport());
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     }
@@ -141,9 +164,9 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
   }
 
   /// Submitting is irreversible (D10) and it is what exposes the work to a
-  /// reviewer (D3), so it asks first. The confirmation names both consequences
-  /// rather than asking a bare "are you sure?", which teaches people to tap
-  /// through without reading.
+  /// reviewer (D3), so it asks first. The confirmation names each consequence
+  /// — including the upload that follows (D31) — rather than asking a bare
+  /// "are you sure?", which teaches people to tap through without reading.
   Future<void> _confirmAndSubmit() async {
     if (!_isEditable || _submitting) return;
 
@@ -155,7 +178,8 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
         message: const Text(
           'It becomes a permanent record: you will not be able to change it, '
           'add findings or photos, or return it to draft. Reviewers can see it '
-          'once submitted.',
+          'once submitted. The app will then upload its PDF report for '
+          'reviewers.',
         ),
         actions: [
           CupertinoActionSheetAction(
@@ -184,6 +208,10 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
       // The server's row, not a locally patched copy: submitted_at is stamped
       // by a trigger, so only the returned row knows when this happened.
       setState(() => _inspection = submitted);
+      // Only now, with the submission permanent (D10): the upload is a
+      // consequence of submitting, never a condition of it, and its failure is
+      // reported under its own keys below rather than as a submit failure.
+      unawaited(_publishReport());
     } catch (e) {
       if (mounted) setState(() => _submitError = e.toString());
     } finally {
@@ -191,8 +219,82 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
     }
   }
 
+  /// Renders the report and uploads it for reviewers, once (D21 amended, D31).
+  ///
+  /// Runs right after a submit, and again only on a tap — the retry for a
+  /// phone that lost signal, or was killed, between submit and upload. A second
+  /// upload of a report that already landed completes without replacing it: the
+  /// bucket is write-once and the store treats "already there" as the goal
+  /// state, so the retry is always safe to offer.
+  Future<void> _publishReport() async {
+    // Neither while a share is rendering: two load -> render runs at once
+    // would download every photograph twice for one stray tap.
+    if (_publishStage != null || _stage != null) return;
+    setState(() {
+      _publishError = null;
+      _checkFailed = false;
+    });
+    try {
+      await widget.reports.publish(
+        _inspection,
+        onStage: (stage) {
+          if (mounted) setState(() => _publishStage = stage);
+        },
+      );
+      if (mounted) {
+        setState(() {
+          _reportPublished = true;
+          _publishUnconfirmed = false;
+        });
+      }
+    } catch (e) {
+      // The exception's own copy, which says first that the submission stands.
+      // Nothing about the record changed; only the upload is outstanding. The
+      // loader's photo failure does not open that way — right after a submit,
+      // with the status pill just flipped, it could read as the submit
+      // failing — so it is prefixed here; the size refusal already names the
+      // report and needs no prefix.
+      if (mounted) {
+        setState(() {
+          _publishError =
+              e is ReportPublishException || e is ReportTooLargeException
+                  ? '$e'
+                  : 'The inspection was submitted. Its PDF report could not be '
+                      'uploaded for reviewers: $e';
+          _reportPublished = false;
+          // Only the upload itself failing in transit leaves a doubt: a
+          // photo or size failure never sent a byte.
+          _publishUnconfirmed = e is ReportPublishException && e.transport;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _publishStage = null);
+    }
+  }
+
+  /// Asks the bucket whether this inspection's report is there.
+  ///
+  /// Absent means the retry row: a phone killed between submit and upload, or
+  /// an inspection submitted from a build that never uploaded, gets its one tap
+  /// here. A failed read is shown as exactly that — "could not check" is never
+  /// rendered as "not uploaded" (D28).
+  Future<void> _checkReport() async {
+    if (_publishStage != null) return;
+    setState(() => _checkFailed = false);
+    try {
+      final published = await widget.reports.published();
+      if (!mounted) return;
+      setState(() {
+        _reportPublished = published.contains(_inspection.id);
+        _publishUnconfirmed = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _checkFailed = true);
+    }
+  }
+
   Future<void> _generateReport() async {
-    if (_stage != null) return;
+    if (_stage != null || _publishStage != null) return;
     setState(() => _reportError = null);
     try {
       await widget.reports.generateAndShare(
@@ -217,6 +319,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
         ReportStage.loading => 'Collecting the inspection…',
         ReportStage.rendering => 'Building the PDF…',
         ReportStage.sharing => 'Opening share sheet…',
+        ReportStage.publishing => 'Uploading the report for reviewers…',
       };
 
   @override
@@ -242,7 +345,11 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
             : CupertinoButton(
                 key: const Key('generate-report-button'),
                 padding: EdgeInsets.zero,
-                onPressed: _stage != null ? null : _generateReport,
+                // Disabled while an upload renders too: one load -> render at
+                // a time, so a stray tap never doubles the photo download.
+                onPressed: _stage != null || _publishStage != null
+                    ? null
+                    : _generateReport,
                 child: _stage != null
                     ? const CupertinoActivityIndicator()
                     : const Icon(
@@ -276,6 +383,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
               ],
             ),
             if (!_isEditable) _readOnlyNotice,
+            if (!_isEditable) _reportSection(),
             if (_stage != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
@@ -507,6 +615,127 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
       ],
     ),
   );
+
+  /// Where the stored report stands, under the read-only notice it belongs
+  /// with: both are facts about a submitted record. Exactly one of four rows,
+  /// or none while the bucket has not answered yet — the screen says nothing
+  /// it does not know (D28).
+  Widget _reportSection() {
+    const style = TextStyle(fontSize: 13, color: AppColors.label2);
+    const padding = EdgeInsets.fromLTRB(20, 12, 20, 0);
+
+    if (_publishStage != null) {
+      return Padding(
+        padding: padding,
+        child: Row(
+          children: [
+            const CupertinoActivityIndicator(radius: 8),
+            const SizedBox(width: 8),
+            Text(
+              _stageLabel(_publishStage!),
+              key: const Key('report-publish-progress'),
+              style: style,
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_checkFailed) {
+      return Padding(
+        padding: padding,
+        child: Row(
+          children: [
+            const Expanded(
+              child: Text(
+                "Couldn't check whether the PDF report has been uploaded.",
+                key: Key('report-state-unknown'),
+                style: style,
+              ),
+            ),
+            CupertinoButton(
+              key: const Key('report-check-retry'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              minimumSize: Size.zero,
+              onPressed: _checkReport,
+              child: const Text('Check again', style: TextStyle(fontSize: 13)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return switch (_reportPublished) {
+      null => const SizedBox.shrink(),
+      true => const Padding(
+          padding: padding,
+          child: Row(
+            children: [
+              Icon(
+                CupertinoIcons.checkmark_circle_fill,
+                size: 14,
+                color: AppColors.green,
+              ),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'PDF report shared with reviewers.',
+                  key: Key('report-published'),
+                  style: style,
+                ),
+              ),
+            ],
+          ),
+        ),
+      false => Padding(
+          padding: padding,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_publishError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    _publishError!,
+                    key: const Key('report-publish-error'),
+                    style: const TextStyle(fontSize: 13, color: AppColors.red),
+                  ),
+                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      // "May not" after a failure in transit: the bucket was
+                      // not read, and the bytes could have landed after the
+                      // response was lost. "Has not" only when the bucket
+                      // said so, or no byte was ever sent.
+                      _publishUnconfirmed
+                          ? 'The PDF report may not have been uploaded for '
+                              'reviewers.'
+                          : 'The PDF report has not been uploaded for '
+                              'reviewers.',
+                      key: const Key('report-unpublished'),
+                      style: style,
+                    ),
+                  ),
+                  CupertinoButton(
+                    key: const Key('publish-report-button'),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    minimumSize: Size.zero,
+                    onPressed: _stage != null ? null : _publishReport,
+                    child: const Text(
+                      'Upload report',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+    };
+  }
 
   Widget _items() {
     if (_error != null) {
