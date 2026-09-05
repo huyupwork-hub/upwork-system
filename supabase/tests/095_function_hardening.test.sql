@@ -45,12 +45,17 @@ select ok(
 );
 
 -- ---------------------------------------------------------------- search_path is pinned
+-- pg_proc.proconfig stores SET search_path = '' as the text search_path="" -- the empty
+-- value is quoted, so the array element to look for is search_path="" and not search_path=.
+-- CI run 33933212105 failed all three of these with the unquoted spelling, including
+-- handle_new_user(), which has been pinned since 20260831000200 and shows the quoted form
+-- on the hosted project.
 
 select ok(
   (select proconfig from pg_catalog.pg_proc p
      join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = 'set_updated_at')
-  @> array['search_path='],
+  @> array['search_path=""'],
   'set_updated_at() pins an empty search_path'
 );
 
@@ -58,7 +63,7 @@ select ok(
   (select proconfig from pg_catalog.pg_proc p
      join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = 'enforce_submission_transition')
-  @> array['search_path='],
+  @> array['search_path=""'],
   'enforce_submission_transition() pins an empty search_path'
 );
 
@@ -66,7 +71,7 @@ select ok(
   (select proconfig from pg_catalog.pg_proc p
      join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = 'handle_new_user')
-  @> array['search_path='],
+  @> array['search_path=""'],
   'handle_new_user() still pins an empty search_path'
 );
 
