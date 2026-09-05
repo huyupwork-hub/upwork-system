@@ -83,6 +83,8 @@ create policy "inspection reports: admin read submitted" on storage.objects
   );
 
 -- No UPDATE policy. No DELETE policy. No admin write policy (D3). No anon policy.
-
-comment on policy "inspection reports: owner publish once" on storage.objects is
-  'Exactly one name per submitted inspection, owner only. No UPDATE/DELETE policy exists for this bucket: write-once by absence (D21 amended, D31).';
+--
+-- No `comment on policy`: COMMENT needs ownership of storage.objects, which the migration
+-- role does not hold (CI run 33972594943 failed the apply with 42501 "must be owner of
+-- relation objects"), whereas CREATE POLICY is granted to it. The policy's intent lives in
+-- the comments above and in D31 instead.
