@@ -12,7 +12,7 @@ guessing.
 | | |
 |---|---|
 | Review console | https://upwork-system-thun-viet.vercel.app |
-| Android build | https://github.com/huyupwork-hub/upwork-system/releases/tag/v0.1.0-demo |
+| Android build | https://github.com/huyupwork-hub/upwork-system/releases/tag/v0.1.0-demo.2 (`fieldproof-76339db.apk`) |
 | Portfolio page | https://huypkc.github.io/projects/fieldproof/ |
 
 The console URL is an alias of a production deployment, not a deployment URL of its own.
@@ -67,21 +67,40 @@ same behaviour for its own cleanup.
 | `20260831000300_rls` | the RLS matrix | yes |
 | `20260831000400_storage` | private photo bucket | yes |
 | `20260831000500_submitted_immutable` | D17, submitted work frozen | yes |
-| `20260905000600_function_hardening` | withdraw default EXECUTE, pin `search_path` | **NO — unverified** |
-| `20260905000700_signup_gate` | close self-signup at the database | **NO — unverified** |
-| `20260905000800_remove_stranded_qa_inspection` | delete one QA row | **NO — unverified** |
+| `20260905000600_function_hardening` | withdraw default EXECUTE, pin `search_path` | yes — 2026-09-05 |
+| `20260905000700_signup_gate` | close self-signup at the database | yes — 2026-09-05 |
+| `20260905000800_remove_stranded_qa_inspection` | delete one QA row | yes — 2026-09-05 |
 
-The last three are committed on `slice/security-migration` and have **never executed**.
-They are not applied and must not be applied until CI has run them. See §6.
+The last three were applied with `supabase db push` on 2026-09-05, after CI run
+`33935381654` (§5) had executed them from empty and from seed and run the pgTAP suite
+against them three times. `supabase migration list` shows all eight local ids matched
+remotely. Read back from the live project afterwards, through the management API's SQL
+endpoint:
 
-### Self-signup is currently OPEN
+| Check | Result |
+|---|---|
+| `pg_proc.proconfig` on `set_updated_at`, `enforce_submission_transition`, `handle_new_user`, `is_admin` | `search_path=""` on all four |
+| `has_function_privilege(role, fn, 'execute')` for `anon` and `authenticated` on the three trigger functions | `false` for all six |
+| `public.signup_allowlist` | RLS forced, 5 rows (three CI fixtures, two demo accounts) |
+| `inspections` row `41c43817…` (*Device QA Persistence 123726*) | gone |
+| Supabase security advisor | `function_search_path_mutable` no longer reported; `rls_enabled_no_policy` on `signup_allowlist` and `authenticated_security_definer_function_executable` on `is_admin()` remain, both deliberate — the allowlist has no policy on purpose, and `is_admin()` is reviewed in `20260905000600`; `auth_leaked_password_protection` (WARN) is an Auth setting, not in this repository |
 
-As of 2026-09-05, `GET /auth/v1/settings` on this project returns `"disable_signup": false`,
-and `profiles.role` defaults to `inspector`. A stranger can create an account and write
-their own inspections, items and photos under the inspector policies.
+One consequence of the allowlist to know about: its five rows are the local seed's three
+fixture addresses and the two published demo accounts. The hosted smoke users A and B and
+one personal admin profile exist in the project but are not on it, which is fine while
+those `auth.users` rows exist and would stop them being re-created through sign-up if they
+were ever deleted.
 
-`20260905000700_signup_gate` closes this at the database. The matching project-level
-setting is not in this repository and has to be turned off separately:
+### Self-signup: closed at the database, still open in Auth configuration
+
+`20260905000700_signup_gate` is applied: `handle_new_user()` now refuses any address not
+in `signup_allowlist`, so a stranger's sign-up fails at the trigger and strands neither an
+`auth.users` row nor a profile (proved by `supabase/tests/100_signup_gate.test.sql`).
+
+The project-level toggle is a separate thing and is **still open**: re-read after the
+migration, on 2026-09-05, `GET /auth/v1/settings` still returns `"disable_signup": false`.
+It is not in this repository and has to be turned off separately, either in the dashboard
+(Authentication → Sign In / Providers → *Allow new users to sign up*) or with:
 
 ```
 PATCH https://api.supabase.com/v1/projects/dkgrpoudebqvtpxdetdg/config/auth
@@ -103,18 +122,41 @@ configuration change nobody reviewed.
 | Root directory | `apps/admin` |
 | Framework | Next.js, Node 24.x, region `iad1` |
 
-```bash
-vercel deploy --prod --scope thun-viet
-```
+**Push to `main`.** That is the route, and it always was: Vercel's own record
+(`vercel api /v13/deployments/<id>`, which shows the `gitSource` that `vercel inspect`
+hides) lists git-triggered production deployments of `main` at `3469eea` (2026-09-01),
+`ffef50e` and `6fc2ee5` (2026-09-02) and `76339db` (2026-09-05, merge of PR #6,
+`dpl_44uJ3krZS6oZHgDj9cCmjDCWVyu2`). The earlier note here — that auto-deploy was off
+because the Vercel account is not linked to the committing identity — was never true of
+this project, and neither was the "unknown commit" that followed from it. The public alias
+resolves to `dpl_44uJ3krZS6oZHgDj9cCmjDCWVyu2` as of 2026-09-05.
 
-**Auto-deploy is off.** The Vercel account is not linked to the GitHub identity that
-authors the commits, so git-triggered builds are blocked and production is deployed by
-hand. The consequence is in §6.
+**By hand only if a push cannot do it.** The project's Root Directory is `apps/admin`, so
+the upload must contain that path: run from `apps/admin` the CLI fails with *The specified
+Root Directory "apps/admin" does not exist*. Run from the repository root instead
+(`.vercel/` is ignored there, `.gitignore` line 48, so `vercel link` is safe). The
+condition is the root `.vercelignore`, which must stay: the CLI ships the checkout
+*including git-ignored files*, and on 2026-09-05 a root deployment carried the local
+`.env` and `supabase/.temp/` that way. That deployment (`dpl_9xpTHaaq…`) and a failed
+one from `apps/admin` were deleted the same morning and the alias returned to the git
+build; the values in that `.env` (two smoke passwords and an admin password) should be
+treated as seen by the Vercel team.
+
+```bash
+vercel link --yes --scope thun-viet --project upwork-system   # once, at the root
+vercel deploy --prod --scope thun-viet --yes -m githubCommitSha=<sha> -m githubCommitRef=main
+```
 
 ### Android APK
 
 CI already builds a commit-tagged release APK, so a release should take that artifact
-rather than a local build:
+rather than a local build. `v0.1.0-demo.2` was cut that way: artifact
+`fieldproof-android-ef90622f…` from run `33935381654`, sha256
+`2d1d0fdcd79269342c3bf91dbbdad2ca28eef9f37d2eb74af18176e274a12f3a`, attached as
+`fieldproof-76339db.apk`. On a `pull_request` run `github.sha` is the PR *merge* commit,
+not the head: `ef90622f` is *Merge 882d9c9 into 6fc2ee5*, and its tree `942bb45b` is the
+tree of `main` at `76339db` (checked with `git rev-parse <commit>^{tree}` on both), which
+is why the asset is named after the `main` commit.
 
 ```
 artifact   fieldproof-android-<sha>
@@ -144,30 +186,67 @@ supabase db push
 
 ## 5. CI run
 
-**None to cite.** This is a gap, not an omission.
+| Run | Commit | Result |
+|---|---|---|
+| https://github.com/huyupwork-hub/upwork-system/actions/runs/33935381654 | PR #6 at `882d9c9` (merge ref `ef90622f`, tree = `main@76339db`) | all gates green: migrations from empty and from seed, pgTAP 11 files / 208 assertions ×3, Mobile, Admin, hosted smoke |
+| https://github.com/huyupwork-hub/upwork-system/actions/runs/33936856376 | `main` at `76339db` | all gates green on the merge commit itself, including the same database gate and a fresh `fieldproof-android-76339db…` artifact |
 
-The repository has **zero self-hosted runners registered**:
+The two runs before those tell the rest of the story and are kept for that reason:
+`33922739927` was cancelled by a later push; `33933212105` failed once on the runner
+(another project's local Supabase stack held port 54322 — fixed by `882d9c9`, which gives
+this project `[db] port = 54332`) and, re-run, failed pgTAP 095 on the spelling of an
+empty `search_path` in `proconfig` — fixed by `57e46b0`. Wherever a database job got as
+far as applying the migrations — `33933212105` attempt 2, `33935381654`, `33936856376` —
+all eight applied cleanly, from empty and from seed; attempt 1 of `33933212105` died
+starting the container before applying any.
 
-```
-GET repos/huyupwork-hub/upwork-system/actions/runners
-{"total_count":0,"runners":[]}
-```
+**Runner.** From 2026-09-04 21:15Z (run `33920282984`, never started) until 2026-09-05
+00:27Z (first job of `33922739927`) the repository had no registered runner. The cause is
+on the box, not in the API: the runner's own `_diag/Runner_20260904-162456-utc.log` ends
+with *The runner registration has been deleted from the server… runners that have not
+connected to the service recently*, and its `.runner` file pointed at another repository,
+having been reconfigured on 2026-09-03. It was re-registered for this repository on
+2026-09-05 as `huy-ThinkPad-T410s` with work folder `/data/runner-work`, so the D16 caches
+apply. **Open:** the repository is public and every job still declares
+`runs-on: [self-hosted, Linux, X64]`. D15 says to move `runs-on` to GitHub-hosted in that
+situation; what is in place instead is `fork-pr-contributor-approval =
+all_external_contributors`, which only gates when a fork's workflow may start. That is
+the owner's decision and it has not been taken.
 
-Every job in `ci.yml` declares `runs-on: [self-hosted, Linux, X64]`, so run
-`33920282984` on PR #6 is queued and cannot start. Until a runner returns, no CI run URL
-can be quoted for the three pending migrations, and no commit-tagged APK artifact exists
-to attach to a release.
+**Smoke cleanup does not delete anything.** The `Purge this run's fixtures` job exits 0
+with *SUPABASE_SERVICE_ROLE_KEY is not set* — although the `hosted-smoke-cleanup`
+environment has held a secret of that name since 2026-09-01. Two things are wrong at once:
+
+1. On the `ci.yml` path the key never reaches the job. `ci.yml` calls `hosted-smoke.yml`
+   with an enumerated `secrets:` list that deliberately omits it, and a called workflow's
+   `secrets` context holds only what the caller passes — the environment binding on the
+   cleanup job does not add to it. So the design in `SMOKE_TEST.md` (key from the
+   environment, boundary from the list) holds the boundary but starves the job.
+2. On the standalone path the stored value is bad. `workflow_dispatch` run `33571900589`
+   (2026-09-01 23:38Z) did resolve the secret, attempted the deletes, and got
+   `401 Invalid API key`.
+
+Each hosted smoke *execution* therefore leaves one submitted
+`SMOKE run<id>x1 submitted do-not-keep` inspection in the live project, visible to the
+demo admin; three exist as of 2026-09-05 (`5113fcd3…`, `72a60c84…`, `4a3a40f3…`, from
+runs `33933212105`, `33935381654`, `33936856376`; the cancelled `33922739927` never ran
+its smoke). Removing them needs a valid service-role key in the environment *and* a path
+on which it resolves — a `workflow_dispatch` of `hosted-smoke.yml`, or `ci.yml` passing
+it through. Nothing else in the repository may delete a submitted row (D17).
 
 ---
 
 ## 6. What is mocked, limited, or unverified
 
-**The deployed commit is unknown.** Because production is deployed by hand, the live
-deployment `dpl_7mY5ksjdvqk8jC9NqZtRWuQpKPRh` (created 2026-09-02) carries no commit, no
-branch and no SHA. `DEMO.md` previously named `f12d71d`; that could not be reproduced from
-the deployment, and its timestamp points at a different commit again. Until production is
-redeployed from a known commit and that commit is written down, "the APK matches the
-deployed commit" cannot be stated truthfully by anyone.
+**The deployed commit is `76339db` on `main`** (2026-09-05): the public alias resolves to
+the git-triggered deployment `dpl_44uJ3krZS6oZHgDj9cCmjDCWVyu2`, whose `gitSource` records
+it, and the APK in `v0.1.0-demo.2` is built from the same tree (§4). The deployment before
+it, `dpl_7mY5ksjdvqk8jC9NqZtRWuQpKPRh` (2026-09-02), was likewise a git build — of
+`6fc2ee5`, the merge of PR #4 — which the previous version of this page called unknown
+because `vercel inspect` does not print git metadata; `vercel api /v13/deployments/<id>`
+does.
+
+**The Auth sign-up toggle is still on** (§3). The database refuses strangers regardless.
 
 **Reports are generated on the device, and nothing is stored.** PDF rendering is Flutter-only
 (D6), the PDF is a projection rather than an artefact (D21), and the console deliberately
@@ -182,12 +261,11 @@ lookup to fail before rendering. Latency, not a correctness problem.
 
 **iOS is unverified.** It needs a macOS runner, which this project has never had.
 
-**Seed data does not yet meet the demo it describes.** Of the submitted inspections visible
-to the demo admin, only two carry photographs. One row, `Device QA Persistence 123726`, is
-a fixture stranded by real-device QA rather than demo content;
-`20260905000800_remove_stranded_qa_inspection` removes it, and until that migration is
-applied `DEMO.md` overstates the demo by describing three inspections where four are
-visible.
+**Seed data.** Three demo inspections are submitted (Northgate Retail Park with two
+photographs, Harbour View Apartments with one, Meridian Distribution Centre with none) and
+one, Cavendish House, is a draft. The stranded QA row is gone. What the demo admin also
+sees is test residue: one `SMOKE run… do-not-keep` row per hosted smoke run, for the
+reason in §5, until the cleanup key is configured.
 
 **Storage is private.** Photographs are served through short-lived signed URLs; the bucket
 has no public path.

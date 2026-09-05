@@ -21,8 +21,9 @@ inspector's drafts are invisible to them, including to this account.
 
 ## Android — field capture
 
-**[Download the APK](https://github.com/huyupwork-hub/upwork-system/releases/tag/v0.1.0-demo)**
-· `sha256 1676c8d48d4ca5c825d865fe5bec62bc62708319818e8ddf990e8c839b0b557f`
+**[Download the APK](https://github.com/huyupwork-hub/upwork-system/releases/tag/v0.1.0-demo.2)**
+· `sha256 2d1d0fdcd79269342c3bf91dbbdad2ca28eef9f37d2eb74af18176e274a12f3a`
+· built from the same commit as the console (`76339db`)
 
 ```
 fieldproof-demo-inspector@yopmail.com
@@ -36,7 +37,9 @@ is what it says about any self-signed build.
 
 ## What to look at, in the order it makes sense
 
-**1. The console lists submitted inspections only.** Three of them. Search across
+**1. The console lists submitted inspections only.** Three of them — plus one
+`SMOKE run… do-not-keep` row per hosted smoke execution, which the cleanup job cannot
+delete for the reasons in `DEPLOY.md` §5; test residue rather than demo content. Search across
 site, address and client: `northgate` matches a site, `bristol` matches an
 address, and `meridian` matches two different inspections — one by site, one by
 client.
@@ -75,18 +78,16 @@ will not claim locally something no server has agreed to.
 
 | | |
 |---|---|
-| Commit | **not recorded.** See below |
+| Commit | `76339db` on `main`, 2026-09-05 — the commit `v0.1.0-demo.2` is built from |
 | Supabase | hosted project `dkgrpoudebqvtpxdetdg`, region `ap-south-1` |
 | Keys in the browser | the publishable key only. The app refuses to start with a privileged one |
 
-**Why the commit is not named.** Vercel auto-deploy is off, for the reason in the
-limitations above, so production is deployed by hand. A hand-made deployment carries no
-git metadata: the live deployment `dpl_7mY5ksjdvqk8jC9NqZtRWuQpKPRh`, created
-2026-09-02, records no commit, no branch and no SHA. This page previously named
-`f12d71d`. That claim could not be reproduced from the deployment itself, and the
-deployment's timestamp points at a different commit again, so it has been withdrawn
-rather than corrected to a second unverifiable value. Restoring a commit here means
-redeploying production from a known one and recording it at that moment.
+**How the commit is known.** Merging PR #6 produced a git-triggered production
+deployment, `dpl_44uJ3krZS6oZHgDj9cCmjDCWVyu2`, whose `gitSource` records `76339db`; the
+public URL resolves to it. Its tree, `942bb45b`, is the tree the APK in `v0.1.0-demo.2`
+was built from. The deployment before it (`dpl_7mY5ksjdvqk8jC9NqZtRWuQpKPRh`, 2026-09-02)
+was a git build of `6fc2ee5`; the previous version of this page called that unknown because
+`vercel inspect` hides git metadata. Details in `DEPLOY.md` §4 and §6.
 
 ## Known limitations, deliberately not fixed
 
@@ -97,9 +98,10 @@ redeploying production from a known one and recording it at that moment.
   not correctness.
 - **iOS is unverified** (`L2` in `ACCEPTANCE.md`). It needs a macOS runner, which
   this project has never had.
-- **Vercel auto-deploy is off.** The Vercel account is not linked to the GitHub
-  identity that authors the commits, so Git-triggered builds are blocked;
-  production is deployed explicitly instead.
+- **Production is deployed by pushing to `main`.** It always was; an earlier version of
+  this page said auto-deploy was off, which Vercel's own deployment record contradicts.
+  Hand deploys are possible but ship the whole checkout, so `DEPLOY.md` §4 sets the
+  conditions.
 
 ## Demo credentials are published on purpose
 

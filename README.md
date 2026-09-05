@@ -13,7 +13,7 @@ proven on Android hardware. See [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) for w
 | | |
 |---|---|
 | **Review console** | https://upwork-system-thun-viet.vercel.app |
-| **Android build** | [v0.1.0-demo](https://github.com/huyupwork-hub/upwork-system/releases/tag/v0.1.0-demo) |
+| **Android build** | [v0.1.0-demo.2](https://github.com/huyupwork-hub/upwork-system/releases/tag/v0.1.0-demo.2) — same commit as the console |
 
 Credentials and a suggested walkthrough are in [`docs/DEMO.md`](docs/DEMO.md). Both
 demo accounts are published deliberately — the security model is the part worth
