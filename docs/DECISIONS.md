@@ -212,6 +212,17 @@ back into `ci.yml`. Note that making the repository public while a self-hosted r
 attached would let fork pull requests execute code on that machine; move `runs-on` back
 to GitHub-hosted in the same change.
 
+**Amendment 2026-09-05 — public repository, runner kept.** The repository was made public
+and CI stayed on the self-hosted T410s, against the sentence above. The owner reviewed the
+options the same day (move every job to `ubuntu-latest`, or keep the box) and chose to keep
+it: the box carries the D16 caches and the AVX-less Realtime workaround (D11), and the
+project takes no outside contributions. The control in place instead is the repository
+setting *fork pull request workflows require approval for all external contributors*
+(`fork-pr-contributor-approval = all_external_contributors`, read back 2026-09-05), so no
+fork's workflow reaches the runner without the owner's click. **What this does not cover:**
+a fork PR the owner approves without reading, and any collaborator with write access —
+there are none. Reversal is the paragraph above.
+
 ### D16 — CI caches live on the runner's disk, not in `actions/cache` — *Accepted*
 No `actions/cache` steps. `~/.gradle` (→ `/data/gradle`), `~/.pub-cache`, `~/android-sdk`
 and `actions-runner/_work/_tool` (→ `/data/runner-work`) persist between runs;
